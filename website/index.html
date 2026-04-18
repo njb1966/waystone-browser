@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Waystone Browser</title>
+  <meta name="description" content="Waystone Browser is a GUI browser for WWW, Gemini, and Gopher." />
+  <link rel="icon" href="waystone-icon.png" type="image/png" />
+  <style>
+    :root {
+      --bg: #0b1220;
+      --bg2: #111a2d;
+      --panel: rgba(255,255,255,0.08);
+      --border: rgba(255,255,255,0.14);
+      --text: #e7eefc;
+      --muted: #a9b8d8;
+      --accent: #6dc7ff;
+      --accent2: #9fe4ff;
+      --shadow: 0 20px 60px rgba(0,0,0,0.45);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top, rgba(109,199,255,0.18), transparent 35%),
+        linear-gradient(180deg, var(--bg) 0%, #0a101c 100%);
+      min-height: 100vh;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 40px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .brand img {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      box-shadow: 0 0 24px rgba(109,199,255,0.3);
+    }
+
+    .brand span {
+      font-size: 1.05rem;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 28px;
+      align-items: center;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .hero-copy {
+      padding: 42px;
+    }
+
+    .eyebrow {
+      display: inline-block;
+      margin-bottom: 16px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(109,199,255,0.12);
+      border: 1px solid rgba(109,199,255,0.22);
+      color: var(--accent2);
+      font-size: 0.9rem;
+      letter-spacing: 0.04em;
+    }
+
+    h1 {
+      margin: 0 0 16px;
+      font-size: clamp(2.4rem, 5vw, 4.5rem);
+      line-height: 0.95;
+      letter-spacing: -0.03em;
+    }
+
+    h1 .accent {
+      color: var(--accent2);
+      text-shadow: 0 0 18px rgba(109,199,255,0.28);
+    }
+
+    .sub {
+      margin: 0 0 26px;
+      max-width: 58ch;
+      color: var(--muted);
+      font-size: 1.08rem;
+      line-height: 1.7;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px 20px;
+      border-radius: 14px;
+      font-weight: 700;
+      transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+      border: 1px solid var(--border);
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+    }
+
+    .btn-primary {
+      background: linear-gradient(180deg, var(--accent), #46aef3);
+      color: #04101b;
+      border-color: transparent;
+      box-shadow: 0 12px 30px rgba(109,199,255,0.2);
+    }
+
+    .btn-secondary {
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+    }
+
+    .protocols {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .pill {
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04);
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .hero-art {
+      padding: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100%;
+    }
+
+    .hero-art img {
+      width: 100%;
+      max-width: 420px;
+      border-radius: 22px;
+      display: block;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.45);
+    }
+
+    .screenshots {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 28px;
+    }
+
+    .screenshot-card {
+      overflow: hidden;
+    }
+
+    .screenshot-card img {
+      width: 100%;
+      display: block;
+      border-radius: 18px 18px 0 0;
+    }
+
+    .screenshot-caption {
+      padding: 12px 16px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      text-align: center;
+      letter-spacing: 0.03em;
+    }
+
+    .info {
+      margin-top: 28px;
+      padding: 36px 40px;
+    }
+
+    .info h2 {
+      margin: 0 0 8px;
+      font-size: 1.5rem;
+    }
+
+    .info .lead {
+      margin: 0 0 32px;
+      color: var(--muted);
+      line-height: 1.7;
+      max-width: 74ch;
+      font-size: 1.05rem;
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px 40px;
+    }
+
+    .info-block h3 {
+      margin: 0 0 10px;
+      font-size: 1rem;
+      color: var(--accent2);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .info-block p {
+      margin: 0 0 8px;
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 0.97rem;
+    }
+
+    .info-block p:last-child {
+      margin-bottom: 0;
+    }
+
+    .info-block ul {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .info-block ul li {
+      color: var(--muted);
+      font-size: 0.97rem;
+      line-height: 1.7;
+      padding-left: 14px;
+      position: relative;
+    }
+
+    .info-block ul li::before {
+      content: "›";
+      position: absolute;
+      left: 0;
+      color: var(--accent);
+    }
+
+    .proto-label {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .stack-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .stack-pill {
+      padding: 5px 11px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04);
+      color: var(--muted);
+      font-size: 0.87rem;
+    }
+
+    @media (max-width: 860px) {
+      .info {
+        padding: 28px;
+      }
+
+      .info-grid {
+        grid-template-columns: 1fr;
+        gap: 24px;
+      }
+    }
+
+    footer {
+      margin-top: 22px;
+      color: #8d9ab8;
+      font-size: 0.95rem;
+      text-align: center;
+    }
+
+    @media (max-width: 860px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .screenshots {
+        grid-template-columns: 1fr;
+      }
+
+      .hero-copy {
+        padding: 28px;
+      }
+
+      header {
+        margin-bottom: 24px;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .wrap {
+        padding: 20px 14px 36px;
+      }
+
+      .hero-copy,
+      .hero-art,
+      .info {
+        padding: 22px;
+      }
+
+      .actions {
+        flex-direction: column;
+      }
+
+      .btn {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <a class="brand" href="/" aria-label="Waystone Browser home">
+        <img src="waystone-logo.png" alt="Waystone Browser icon" />
+        <span>WAYSTONE BROWSER</span>
+      </a>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy card">
+          <div class="eyebrow">WWW · Gemini · Gopher</div>
+          <h1>Find your path with <span class="accent">Waystone</span>.</h1>
+          <p class="sub">
+            Waystone Browser is a graphical browser for exploring the modern web alongside
+            Gemini and Gopher in one place. For project details, screenshots, build
+            information, and source code, visit the GitHub repository.
+          </p>
+
+          <div class="actions">
+            <a class="btn btn-primary" href="https://github.com/njb1966/waystone-browser" target="_blank" rel="noopener noreferrer">View on GitHub</a>
+            <a class="btn btn-secondary" href="https://github.com/njb1966/waystone-browser/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+          </div>
+
+          <div class="protocols" aria-label="Supported protocols">
+            <span class="pill">HTTP / HTTPS</span>
+            <span class="pill">Gemini</span>
+            <span class="pill">Gopher</span>
+          </div>
+        </div>
+
+        <div class="hero-art card">
+          <img src="waystone-logo.png" alt="Waystone Browser logo" />
+        </div>
+      </section>
+
+      <section class="screenshots" aria-label="Screenshots">
+        <div class="screenshot-card card">
+          <img src="waystone-web.jpg" alt="Waystone browsing the web" loading="lazy" />
+          <p class="screenshot-caption">HTTP / HTTPS</p>
+        </div>
+        <div class="screenshot-card card">
+          <img src="waystone-gemini.jpg" alt="Waystone browsing a Gemini capsule" loading="lazy" />
+          <p class="screenshot-caption">Gemini</p>
+        </div>
+        <div class="screenshot-card card">
+          <img src="waystone-gopher.jpg" alt="Waystone browsing Gopher" loading="lazy" />
+          <p class="screenshot-caption">Gopher</p>
+        </div>
+      </section>
+
+      <section class="info card">
+        <h2>About Waystone Browser</h2>
+        <p class="lead">
+          Waystone is a multi-protocol graphical browser for Linux that lets you navigate
+          the modern web, Gemini-space, and Gopherspace from a single application.
+          Built with Python, GTK&nbsp;4, Libadwaita, and WebKitGTK — it feels at home
+          on any GNOME desktop.
+        </p>
+
+        <div class="info-grid">
+
+          <div class="info-block">
+            <h3>Protocol Support</h3>
+            <ul>
+              <li>
+                <span class="proto-label">HTTP / HTTPS</span> — Full web engine via
+                WebKitGTK; JavaScript on by default with a global toggle in Settings.
+              </li>
+              <li>
+                <span class="proto-label">Gemini</span> — Native gemtext renderer with
+                TOFU certificate trust, redirect handling, and input prompts
+                (status&nbsp;10&nbsp;/&nbsp;11).
+              </li>
+              <li>
+                <span class="proto-label">Gopher</span> — Menu and text rendering,
+                type-7 search dialogs, and binary file download with Save&nbsp;As.
+              </li>
+            </ul>
+          </div>
+
+          <div class="info-block">
+            <h3>Features</h3>
+            <ul>
+              <li>Tabbed browsing — open, close, and cycle tabs (Ctrl+T / Ctrl+W / Ctrl+Tab)</li>
+              <li>Bookmarks with folder organisation and a Bookmarks Bar</li>
+              <li>Searchable history, auto-recorded per navigation</li>
+              <li>Find in page — Ctrl+F with live match highlighting</li>
+              <li>Dark / Light / System colour scheme, applied immediately</li>
+              <li>Per-tab zoom for web tabs (Ctrl+= / Ctrl+− / Ctrl+0)</li>
+              <li>Open in new tab — <code>target="_blank"</code> and middle-click</li>
+              <li>Print support for web tabs (Ctrl+P)</li>
+            </ul>
+          </div>
+
+          <div class="info-block">
+            <h3>Keyboard Shortcuts</h3>
+            <ul>
+              <li>Alt+Left / Alt+Right — Back / Forward</li>
+              <li>F5 / Ctrl+R — Reload &nbsp;|&nbsp; Ctrl+Shift+R — Hard reload</li>
+              <li>Ctrl+L — Focus address bar</li>
+              <li>Ctrl+D — Bookmark / unbookmark current page</li>
+              <li>Ctrl+B — Bookmarks manager &nbsp;|&nbsp; Ctrl+H — History</li>
+              <li>Ctrl+Shift+B — Toggle Bookmarks Bar</li>
+            </ul>
+          </div>
+
+          <div class="info-block">
+            <h3>Getting Started</h3>
+            <p>Requires Debian / Ubuntu with the following system packages:</p>
+            <p><code>python3-gi &nbsp; gir1.2-gtk-4.0 &nbsp; gir1.2-adw-1<br>
+            gir1.2-webkit-6.0 &nbsp; python3-aiosqlite</code></p>
+            <p>
+              Clone the repository and run <code>./run.sh</code>, or install system-wide
+              with <code>pip install --user .</code>. A Flatpak manifest is also provided
+              for sandboxed installation on any Linux desktop.
+            </p>
+            <p>Full documentation, releases, and source code are on
+              <a href="https://github.com/njb1966/waystone-browser" target="_blank"
+                 rel="noopener noreferrer" style="color:var(--accent2)">GitHub</a>.
+            </p>
+          </div>
+
+          <div class="info-block">
+            <h3>Data &amp; Settings</h3>
+            <ul>
+              <li>Bookmarks, history, and TOFU certs — <code>~/.local/share/waystone/waystone.db</code></li>
+              <li>Settings (homepage, JS, colour scheme) — <code>~/.config/waystone/settings.json</code></li>
+              <li>TOFU fingerprints viewable and removable in Settings → Gemini</li>
+            </ul>
+          </div>
+
+          <div class="info-block">
+            <h3>Tech Stack</h3>
+            <div class="stack-pills">
+              <span class="stack-pill">Python 3</span>
+              <span class="stack-pill">GTK 4</span>
+              <span class="stack-pill">Libadwaita</span>
+              <span class="stack-pill">WebKitGTK 6</span>
+              <span class="stack-pill">asyncio</span>
+              <span class="stack-pill">aiosqlite</span>
+              <span class="stack-pill">SQLite</span>
+              <span class="stack-pill">MIT licence</span>
+            </div>
+          </div>
+
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      waystone.njb1966.com · A browser for the web, Gemini, and Gopher
+    </footer>
+  </div>
+</body>
+</html>

@@ -1,3 +1,4 @@
+import os
 import sys
 from typing import Optional
 
@@ -8,6 +9,16 @@ gi.require_version("WebKit", "6.0")
 from gi.repository import Gtk, Adw, Gio, GLib
 
 from . import async_utils
+
+# Tab icon — prefer the PNG in data/ next to this package; fall back to themed icon.
+_ICON_PATH = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "data", "waystone-icon.png")
+)
+
+def _tab_icon() -> "Gio.Icon":
+    if os.path.exists(_ICON_PATH):
+        return Gio.FileIcon.new(Gio.File.new_for_path(_ICON_PATH))
+    return Gio.ThemedIcon.new("com.waystone.browser")
 from .navigation import normalize_url, detect_scheme, Scheme
 from .tab import Tab, TabKind
 from .db import Database
@@ -208,6 +219,7 @@ class BrowserWindow(Adw.ApplicationWindow):
         )
         page = self.tab_view.append(tab.widget)
         page.set_title("New Tab")
+        page.set_icon(_tab_icon())
         self._tabs[page] = tab
         self.tab_view.set_selected_page(page)
 
