@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New Tab</title>
+  <style>
+    :root {
+      --bg: #f6f5f4;
+      --surface: #ffffff;
+      --border: #dddad5;
+      --text: #2d2d2d;
+      --subtext: #6b6b6b;
+      --shadow: 0 1px 4px rgba(0,0,0,0.10);
+      --badge-gemini-bg: #1565c0;
+      --badge-gemini-fg: #ffffff;
+      --badge-gopher-bg: #2e7d32;
+      --badge-gopher-fg: #ffffff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1e1e2e;
+        --surface: #2a2a3c;
+        --border: #3a3a50;
+        --text: #e0dfe8;
+        --subtext: #9a99a8;
+        --shadow: 0 1px 6px rgba(0,0,0,0.40);
+        --badge-gemini-bg: #1976d2;
+        --badge-gemini-fg: #ffffff;
+        --badge-gopher-bg: #388e3c;
+        --badge-gopher-fg: #ffffff;
+      }
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Cantarell,
+                   "Noto Sans", sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      gap: 2rem;
+      padding: 2rem;
+    }
+    h1 {
+      font-size: 1.3rem;
+      font-weight: 400;
+      color: var(--subtext);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .shortcuts {
+      display: flex;
+      gap: 1.25rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    a.card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      padding: 1.25rem 1.5rem;
+      width: 190px;
+      text-decoration: none;
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+    a.card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.15);
+    }
+    .badge {
+      display: inline-block;
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 4px;
+      align-self: flex-start;
+    }
+    .gemini { background: var(--badge-gemini-bg); color: var(--badge-gemini-fg); }
+    .gopher  { background: var(--badge-gopher-bg);  color: var(--badge-gopher-fg);  }
+    .card-title {
+      font-size: 1rem;
+      font-weight: 600;
+    }
+    .card-desc {
+      font-size: 0.80rem;
+      color: var(--subtext);
+      line-height: 1.45;
+    }
+  </style>
+</head>
+<body>
+  <h1>Waystone</h1>
+  <div class="shortcuts">
+    <a class="card" href="gemini://gemcities.com/">
+      <span class="badge gemini">Gemini</span>
+      <span class="card-title">Gemcities</span>
+      <span class="card-desc">A community of personal Gemini capsules</span>
+    </a>
+    <a class="card" href="gemini://geminispace.org/">
+      <span class="badge gemini">Gemini</span>
+      <span class="card-title">Geminispace</span>
+      <span class="card-desc">Gemini search engine and directory</span>
+    </a>
+    <a class="card" href="gopher://gopher.floodgap.com/">
+      <span class="badge gopher">Gopher</span>
+      <span class="card-title">Floodgap</span>
+      <span class="card-desc">The classic Gopher server</span>
+    </a>
+  </div>
+</body>
+</html>

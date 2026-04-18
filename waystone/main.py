@@ -6,18 +6,15 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("WebKit", "6.0")
-from gi.repository import Gtk, Adw, Gio, GLib
+from gi.repository import Gtk, Adw, Gio, GLib, Gdk
 
 from . import async_utils
 
-# Tab icon — prefer the PNG in data/ next to this package; fall back to themed icon.
-_ICON_PATH = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "data", "waystone-icon.png")
-)
+_DATA_DIR   = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "data"))
+_ICONS_DIR  = os.path.join(_DATA_DIR, "icons")
+_NEWTAB_PATH = os.path.join(_DATA_DIR, "newtab.html")
 
 def _tab_icon() -> "Gio.Icon":
-    if os.path.exists(_ICON_PATH):
-        return Gio.FileIcon.new(Gio.File.new_for_path(_ICON_PATH))
     return Gio.ThemedIcon.new("com.waystone.browser")
 from .navigation import normalize_url, detect_scheme, Scheme
 from .tab import Tab, TabKind
@@ -179,6 +176,8 @@ class BrowserWindow(Adw.ApplicationWindow):
         app.set_accels_for_action("win.next-tab",             ["<Control>Tab"])
         app.set_accels_for_action("win.prev-tab",             ["<Control><Shift>Tab"])
         # Bookmarks
+        app.set_accels_for_action("win.show-bookmarks",        ["<Control>b"])
+        app.set_accels_for_action("win.show-history",         ["<Control>h"])
         app.set_accels_for_action("win.toggle-bookmarks-bar", ["<Control><Shift>b"])
         app.set_accels_for_action("win.toggle-bookmark",      ["<Control>d"])
         # Navigation
@@ -206,6 +205,10 @@ class BrowserWindow(Adw.ApplicationWindow):
         if not url and self._settings.homepage:
             url = normalize_url(self._settings.homepage)
 
+        # Fall back to the new-tab start page.
+        if not url and os.path.exists(_NEWTAB_PATH):
+            url = f"file://{_NEWTAB_PATH}"
+
         kind = self._kind_for_url(url) if url else TabKind.WEB
         tab = Tab(
             kind=kind,
@@ -229,7 +232,7 @@ class BrowserWindow(Adw.ApplicationWindow):
         self._tabs[page] = tab
         self.tab_view.set_selected_page(page)
 
-        if url:
+        if url and not url.startswith("file://"):
             self.address_bar.set_text(url)
         else:
             self.address_bar.set_text("")
@@ -471,7 +474,7 @@ class BrowserWindow(Adw.ApplicationWindow):
             self._set_bookmark_icon(False)
             return
         uri = tab.get_uri()
-        self.address_bar.set_text(uri)
+        self.address_bar.set_text("" if uri.startswith("file://") else uri)
         self._update_nav_buttons(tab)
         async_utils.run(self._refresh_bookmark_star_async(uri))
         self._update_window_title(tab)
@@ -503,6 +506,8 @@ class BrowserWindow(Adw.ApplicationWindow):
     def _on_tab_close(self, tab_view, page):
         self._tabs.pop(page, None)
         tab_view.close_page_finish(page, True)
+        if tab_view.get_n_pages() == 0:
+            self._open_new_tab()
         return True
 
     # ------------------------------------------------------------------
@@ -518,7 +523,7 @@ class BrowserWindow(Adw.ApplicationWindow):
 
     def _on_tab_uri_changed(self, tab: Tab, uri: str):
         if tab is self._active_tab():
-            self.address_bar.set_text(uri)
+            self.address_bar.set_text("" if uri.startswith("file://") else uri)
             async_utils.run(self._refresh_bookmark_star_async(uri))
 
     def _on_tab_nav_state_changed(self, tab: Tab):
@@ -535,7 +540,7 @@ class BrowserWindow(Adw.ApplicationWindow):
             self._run_find()
         uri = tab.get_uri()
         title = tab.get_title()
-        if uri and uri != "about:blank":
+        if uri and uri != "about:blank" and not uri.startswith("file://"):
             async_utils.run(self._history.record(uri, title))
 
     # ------------------------------------------------------------------
@@ -684,7 +689,7 @@ class BrowserWindow(Adw.ApplicationWindow):
         tab = self._active_tab()
         if tab:
             url = tab.get_uri()
-            if url and url != "about:blank":
+            if url and url != "about:blank" and not url.startswith("file://"):
                 self._open_new_tab(url)
 
     # ------------------------------------------------------------------
@@ -708,7 +713,7 @@ class BrowserWindow(Adw.ApplicationWindow):
             tab = self._tabs.get(page)
             if tab:
                 url = tab.get_uri()
-                if url and url != "about:blank":
+                if url and url != "about:blank" and not url.startswith("file://"):
                     urls.append(url)
         self._settings.session_urls = urls
         return False  # allow the window to close
@@ -758,6 +763,11 @@ class WaystoneApp(Adw.Application):
         GLib.idle_add(self._create_window, app, bookmarks, history, tofu)
 
     def _create_window(self, app, bookmarks, history, tofu):
+        # Register the bundled icon directory so themed icons resolve in dev mode.
+        display = Gdk.Display.get_default()
+        if display:
+            Gtk.IconTheme.get_for_display(display).add_search_path(_ICONS_DIR)
+
         # Apply saved color scheme before presenting the window
         _scheme_map = {
             "default": Adw.ColorScheme.DEFAULT,
