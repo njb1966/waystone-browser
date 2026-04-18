@@ -47,6 +47,8 @@ class TextViewer(Gtk.ScrolledWindow):
         super().__init__()
         self._navigate_cb = navigate_cb
         self._link_tags: dict[str, str] = {}   # tag_name -> url
+        self._find_matches: list[tuple[int, int]] = []
+        self._find_current: int = -1
 
         self._build()
 
@@ -83,16 +85,25 @@ class TextViewer(Gtk.ScrolledWindow):
 
     def _create_permanent_tags(self):
         t = self._buf.create_tag
-        t("h1",        weight=Pango.Weight.BOLD,  scale=1.6)
-        t("h2",        weight=Pango.Weight.BOLD,  scale=1.35)
-        t("h3",        weight=Pango.Weight.BOLD,  scale=1.15)
-        t("list",      left_margin=24)
-        t("quote",     style=Pango.Style.ITALIC,  left_margin=24,
-                       foreground="#888888")
-        t("pre",       family="monospace",         foreground="#268bd2")
-        t("link_base", foreground="#3584e4",
-                       underline=Pango.Underline.SINGLE)
+        t("h1",             weight=Pango.Weight.BOLD,  scale=1.6)
+        t("h2",             weight=Pango.Weight.BOLD,  scale=1.35)
+        t("h3",             weight=Pango.Weight.BOLD,  scale=1.15)
+        t("list",           left_margin=24)
+        t("quote",          style=Pango.Style.ITALIC,  left_margin=24,
+                            foreground="#888888")
+        t("pre",            family="monospace",         foreground="#268bd2")
+        t("link_base",      foreground="#3584e4",
+                            underline=Pango.Underline.SINGLE)
         t("text")
+        # Error page tags
+        t("error_heading",  foreground="#e01b24", weight=Pango.Weight.BOLD, scale=1.6)
+        t("error_status",   foreground="#e01b24", weight=Pango.Weight.BOLD, scale=3.0)
+        t("error_desc",     foreground="#888888", scale=1.1)
+        # Gopher error line
+        t("gopher_err",     foreground="#e01b24", style=Pango.Style.ITALIC)
+        # Find-in-page highlights
+        t("find_highlight", background="#f9f06b", foreground="#000000")
+        t("find_current",   background="#e66100", foreground="#ffffff")
 
     # ------------------------------------------------------------------
     # Public render API
@@ -137,21 +148,26 @@ class TextViewer(Gtk.ScrolledWindow):
     def render_error(self, message: str):
         self._clear()
         end = self._buf.get_end_iter()
-        if not self._buf.get_tag_table().lookup("error_msg"):
-            self._buf.create_tag("error_msg", foreground="#e01b24",
-                                 weight=Pango.Weight.BOLD, scale=1.1)
-        self._buf.insert_with_tags_by_name(end, "Error\n", "error_msg")
-        self._buf.insert_with_tags_by_name(end, message + "\n", "text")
+        self._insert(end, "\n", "text")
+
+        # If message looks like "STATUS — description" (Gemini/Gopher error responses),
+        # render the numeric code large and the description beneath it.
+        if " — " in message:
+            parts = message.split(" — ", 1)
+            if parts[0].strip().isdigit():
+                self._insert(end, parts[0].strip() + "\n", "error_status")
+                self._insert(end, parts[1].strip() + "\n", "error_desc")
+                self._scroll_top()
+                return
+
+        self._insert(end, "Error\n", "error_heading")
+        self._insert(end, message + "\n", "error_desc")
         self._scroll_top()
 
     def render_gopher_menu(self, items: "list[GopherItem]"):
         from .gopher_client import item_url, BINARY_TYPES
         self._clear()
         end = self._buf.get_end_iter()
-
-        if not self._buf.get_tag_table().lookup("gopher_err"):
-            self._buf.create_tag("gopher_err", foreground="#e01b24",
-                                 style=Pango.Style.ITALIC)
 
         for item in items:
             if item.type == "i":
@@ -178,6 +194,8 @@ class TextViewer(Gtk.ScrolledWindow):
     def _clear(self):
         self._buf.set_text("")
         self._link_tags.clear()
+        self._find_matches.clear()
+        self._find_current = -1
 
     def _insert(self, iter_: Gtk.TextIter, text: str, *tag_names: str):
         self._buf.insert_with_tags_by_name(iter_, text, *tag_names)
@@ -198,6 +216,82 @@ class TextViewer(Gtk.ScrolledWindow):
     def _scroll_top(self):
         self._buf.place_cursor(self._buf.get_start_iter())
         self._view.scroll_to_mark(self._buf.get_insert(), 0.0, True, 0.0, 0.0)
+
+    # ------------------------------------------------------------------
+    # Find in page
+    # ------------------------------------------------------------------
+
+    def find(self, text: str) -> int:
+        """Highlight all occurrences of *text*, scroll to the first. Returns match count."""
+        self._clear_find_highlights()
+        self._find_matches.clear()
+        self._find_current = -1
+
+        if not text:
+            return 0
+
+        flags = (Gtk.TextSearchFlags.CASE_INSENSITIVE |
+                 Gtk.TextSearchFlags.TEXT_ONLY)
+        start = self._buf.get_start_iter()
+        while True:
+            result = start.forward_search(text, flags, None)
+            if not result:
+                break
+            if isinstance(result, tuple):
+                if len(result) == 3:
+                    found, match_start, match_end = result
+                    if not found:
+                        break
+                else:
+                    match_start, match_end = result[0], result[1]
+            else:
+                break
+            self._buf.apply_tag_by_name("find_highlight", match_start, match_end)
+            self._find_matches.append(
+                (match_start.get_offset(), match_end.get_offset())
+            )
+            start = match_end.copy()
+
+        if self._find_matches:
+            self._find_current = 0
+            self._scroll_to_find_match(0)
+
+        return len(self._find_matches)
+
+    def find_next(self):
+        if not self._find_matches:
+            return
+        self._find_current = (self._find_current + 1) % len(self._find_matches)
+        self._scroll_to_find_match(self._find_current)
+
+    def find_prev(self):
+        if not self._find_matches:
+            return
+        self._find_current = (self._find_current - 1) % len(self._find_matches)
+        self._scroll_to_find_match(self._find_current)
+
+    def find_clear(self):
+        self._clear_find_highlights()
+        self._find_matches.clear()
+        self._find_current = -1
+
+    def _clear_find_highlights(self):
+        start = self._buf.get_start_iter()
+        end = self._buf.get_end_iter()
+        self._buf.remove_tag_by_name("find_highlight", start, end)
+        self._buf.remove_tag_by_name("find_current",   start, end)
+
+    def _scroll_to_find_match(self, idx: int):
+        start_offset, end_offset = self._find_matches[idx]
+        start_iter = self._buf.get_iter_at_offset(start_offset)
+        end_iter   = self._buf.get_iter_at_offset(end_offset)
+        # Highlight current match in a distinct colour
+        self._buf.remove_tag_by_name(
+            "find_current", self._buf.get_start_iter(), self._buf.get_end_iter()
+        )
+        self._buf.apply_tag_by_name("find_current", start_iter, end_iter)
+        self._buf.place_cursor(start_iter)
+        self._view.scroll_to_mark(self._buf.get_insert(), 0.0, True, 0.0, 0.3)
 
     @staticmethod
     def _resolve_url(url: str, base: str) -> str:

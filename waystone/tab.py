@@ -70,6 +70,7 @@ class Tab:
         self._js_enabled = js_enabled
         self._zoom_level: float = 1.0
         self._spinner: Optional[Gtk.Spinner] = None
+        self._page_title: str = ""
         self._tofu = tofu_store
         self._tofu_prompt_cb = tofu_prompt_cb
         self._input_prompt_cb = input_prompt_cb
@@ -171,6 +172,8 @@ class Tab:
     def get_title(self) -> str:
         if self.kind == TabKind.WEB:
             return self._web_view.get_title() or self.current_url or "New Tab"
+        if self._page_title:
+            return self._page_title
         parsed = urlparse(self.current_url)
         return (parsed.netloc + parsed.path) if parsed.netloc else (self.current_url or "New Tab")
 
@@ -320,6 +323,9 @@ class Tab:
             mime, charset = self._parse_mime(response.meta)
             if mime in ("text/gemini", ""):
                 text = response.body.decode(charset, errors="replace")
+                title = self._extract_gemtext_title(text)
+                if title:
+                    self._page_title = title
                 GLib.idle_add(lambda t=text, u=url: self._viewer.render_gemtext(t, u))
             elif mime.startswith("text/"):
                 text = response.body.decode(charset, errors="replace")
@@ -418,6 +424,12 @@ class Tab:
             GLib.idle_add(self._gtk_load_done, url)
             return
 
+        # Derive a human-readable title from the selector path component
+        _last = selector.rstrip("/").rsplit("/", 1)[-1] if "/" in selector else selector
+        self._page_title = (
+            _last.replace("-", " ").replace("_", " ").title() or host
+        )
+
         self.current_url = url
         if push:
             self._push_nav(url)
@@ -458,6 +470,19 @@ class Tab:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _extract_gemtext_title(text: str) -> str:
+        """Return the first heading found in a Gemtext document, or ''."""
+        for line in text.splitlines():
+            s = line.strip()
+            if s.startswith("# "):
+                return s[2:].strip()
+            if s.startswith("## "):
+                return s[3:].strip()
+            if s.startswith("### "):
+                return s[4:].strip()
+        return ""
+
+    @staticmethod
     def _parse_mime(meta: str) -> tuple[str, str]:
         if not meta:
             return ("text/gemini", "utf-8")
@@ -468,6 +493,56 @@ class Tab:
             if part.lower().startswith("charset="):
                 charset = part[8:].strip()
         return (mime, charset)
+
+    # ------------------------------------------------------------------
+    # Find in page (GTK thread)
+    # ------------------------------------------------------------------
+
+    def find(self, text: str):
+        """Start a find operation. Returns match count for text tabs, None for web."""
+        if self.kind == TabKind.WEB:
+            fc = self._web_view.get_find_controller()
+            if text:
+                flags = (WebKit.FindOptions.CASE_INSENSITIVE |
+                         WebKit.FindOptions.WRAP_AROUND)
+                fc.search(text, flags, 100)
+            else:
+                fc.search_finish()
+            return None
+        elif self.kind in (TabKind.GEMINI, TabKind.GOPHER):
+            return self._viewer.find(text)
+        return None
+
+    def find_next(self):
+        if self.kind == TabKind.WEB:
+            self._web_view.get_find_controller().search_next()
+        elif self.kind in (TabKind.GEMINI, TabKind.GOPHER):
+            self._viewer.find_next()
+
+    def find_prev(self):
+        if self.kind == TabKind.WEB:
+            self._web_view.get_find_controller().search_previous()
+        elif self.kind in (TabKind.GEMINI, TabKind.GOPHER):
+            self._viewer.find_prev()
+
+    def find_clear(self):
+        if self.kind == TabKind.WEB:
+            try:
+                self._web_view.get_find_controller().search_finish()
+            except Exception:
+                pass
+        elif self.kind in (TabKind.GEMINI, TabKind.GOPHER):
+            self._viewer.find_clear()
+
+    # ------------------------------------------------------------------
+    # Print (GTK thread)
+    # ------------------------------------------------------------------
+
+    def print_page(self, parent: Gtk.Widget):
+        """Show the print dialog. Only supported for web tabs."""
+        if self.kind == TabKind.WEB:
+            print_op = WebKit.PrintOperation.new(self._web_view)
+            print_op.run_dialog(parent)
 
     # ------------------------------------------------------------------
     # WebKit signal handlers (GTK thread)

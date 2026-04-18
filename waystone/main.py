@@ -103,9 +103,12 @@ class BrowserWindow(Adw.ApplicationWindow):
         )
         self._bookmarks_bar.set_visible(self._settings.show_bookmarks_bar)
 
+        self._find_bar = self._build_find_bar()
+
         root.append(header)
         root.append(self._bookmarks_bar)
         root.append(tab_bar)
+        root.append(self._find_bar)
         root.append(self.tab_view)
 
         self._update_nav_buttons(None)
@@ -113,9 +116,10 @@ class BrowserWindow(Adw.ApplicationWindow):
 
     def _build_menu(self) -> Gio.Menu:
         menu = Gio.Menu()
-        menu.append("Bookmarks…", "win.show-bookmarks")
-        menu.append("History…", "win.show-history")
-        menu.append("Settings…", "win.show-settings")
+        menu.append("Bookmarks…",     "win.show-bookmarks")
+        menu.append("History…",       "win.show-history")
+        menu.append("Settings…",      "win.show-settings")
+        menu.append("About Waystone", "win.show-about")
         return menu
 
     def _register_actions(self):
@@ -141,6 +145,12 @@ class BrowserWindow(Adw.ApplicationWindow):
             ("zoom-in",              lambda *_: self._active_tab_action("zoom-in")),
             ("zoom-out",             lambda *_: self._active_tab_action("zoom-out")),
             ("zoom-reset",           lambda *_: self._active_tab_action("zoom-reset")),
+            # Find / Print / About
+            ("find",                 lambda *_: self._show_find()),
+            ("find-next",            lambda *_: self._find_next()),
+            ("find-prev",            lambda *_: self._find_prev()),
+            ("print",                lambda *_: self._print_page()),
+            ("show-about",           lambda *_: self._show_about()),
         ]:
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", cb)
@@ -165,6 +175,11 @@ class BrowserWindow(Adw.ApplicationWindow):
         app.set_accels_for_action("win.zoom-in",              ["<Control>equal", "<Control>plus"])
         app.set_accels_for_action("win.zoom-out",             ["<Control>minus"])
         app.set_accels_for_action("win.zoom-reset",           ["<Control>0"])
+        # Find / Print
+        app.set_accels_for_action("win.find",                 ["<Control>f"])
+        app.set_accels_for_action("win.find-next",            ["F3", "<Control>g"])
+        app.set_accels_for_action("win.find-prev",            ["<Shift>F3", "<Control><Shift>g"])
+        app.set_accels_for_action("win.print",                ["<Control>p"])
 
     # ------------------------------------------------------------------
     # Tab management
@@ -441,6 +456,7 @@ class BrowserWindow(Adw.ApplicationWindow):
         self.address_bar.set_text(uri)
         self._update_nav_buttons(tab)
         async_utils.run(self._refresh_bookmark_star_async(uri))
+        self._run_find()
 
     def _close_current_tab(self):
         page = self.tab_view.get_selected_page()
@@ -495,10 +511,126 @@ class BrowserWindow(Adw.ApplicationWindow):
     def _on_tab_load_finished(self, tab: Tab):
         if tab is self._active_tab():
             self.btn_reload.set_icon_name("view-refresh-symbolic")
+            self._run_find()
         uri = tab.get_uri()
         title = tab.get_title()
         if uri and uri != "about:blank":
             async_utils.run(self._history.record(uri, title))
+
+    # ------------------------------------------------------------------
+    # Find bar
+    # ------------------------------------------------------------------
+
+    def _build_find_bar(self) -> Gtk.SearchBar:
+        bar = Gtk.SearchBar()
+        bar.set_show_close_button(True)
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+
+        self._find_entry = Gtk.SearchEntry()
+        self._find_entry.set_hexpand(True)
+        self._find_entry.set_placeholder_text("Find in page…")
+        self._find_entry.connect("search-changed", self._on_find_changed)
+        self._find_entry.connect("activate", lambda _: self._find_next())
+
+        btn_prev = Gtk.Button(icon_name="go-up-symbolic")
+        btn_prev.set_tooltip_text("Previous match (Shift+F3)")
+        btn_prev.add_css_class("flat")
+        btn_prev.connect("clicked", lambda _: self._find_prev())
+
+        btn_next = Gtk.Button(icon_name="go-down-symbolic")
+        btn_next.set_tooltip_text("Next match (F3)")
+        btn_next.add_css_class("flat")
+        btn_next.connect("clicked", lambda _: self._find_next())
+
+        self._find_count_label = Gtk.Label(label="")
+        self._find_count_label.add_css_class("dim-label")
+        self._find_count_label.set_width_chars(14)
+        self._find_count_label.set_xalign(0.0)
+
+        row.append(self._find_entry)
+        row.append(btn_prev)
+        row.append(btn_next)
+        row.append(self._find_count_label)
+
+        bar.set_child(row)
+        bar.connect_entry(self._find_entry)
+        bar.connect("notify::search-mode-enabled", self._on_find_bar_toggled)
+        return bar
+
+    def _show_find(self):
+        self._find_bar.set_search_mode(True)
+        self._find_entry.grab_focus()
+
+    def _on_find_changed(self, _entry):
+        self._run_find()
+
+    def _run_find(self):
+        if not hasattr(self, "_find_bar") or not hasattr(self, "_find_entry"):
+            return
+        text = self._find_entry.get_text()
+        tab = self._active_tab()
+        if not tab:
+            self._find_count_label.set_label("")
+            return
+        if self._find_bar.get_search_mode() and text:
+            count = tab.find(text)
+            if isinstance(count, int):
+                if count == 0:
+                    self._find_count_label.set_label("No matches")
+                else:
+                    self._find_count_label.set_label(
+                        f"{count} match{'es' if count != 1 else ''}"
+                    )
+            else:
+                self._find_count_label.set_label("")
+        else:
+            tab.find_clear()
+            self._find_count_label.set_label("")
+
+    def _find_next(self):
+        tab = self._active_tab()
+        if tab:
+            tab.find_next()
+
+    def _find_prev(self):
+        tab = self._active_tab()
+        if tab:
+            tab.find_prev()
+
+    def _on_find_bar_toggled(self, bar, _param):
+        if not bar.get_search_mode():
+            tab = self._active_tab()
+            if tab:
+                tab.find_clear()
+            self._find_count_label.set_label("")
+
+    # ------------------------------------------------------------------
+    # Print
+    # ------------------------------------------------------------------
+
+    def _print_page(self):
+        tab = self._active_tab()
+        if tab:
+            tab.print_page(self)
+
+    # ------------------------------------------------------------------
+    # About
+    # ------------------------------------------------------------------
+
+    def _show_about(self):
+        Adw.AboutDialog(
+            application_name="Waystone",
+            application_icon="com.waystone.browser",
+            developer_name="Nick Burchett",
+            version="0.1.0",
+            website="https://github.com/njb1966/waystone-browser",
+            issue_url="https://github.com/njb1966/waystone-browser/issues",
+            license_type=Gtk.License.MIT_X11,
+            developers=["Nick Burchett"],
+            comments="A multi-protocol browser for Linux supporting "
+                     "HTTP/HTTPS, Gemini, and Gopher.",
+        ).present(self)
 
     # ------------------------------------------------------------------
     # Helpers
