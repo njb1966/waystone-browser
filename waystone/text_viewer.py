@@ -205,15 +205,27 @@ class TextViewer(Gtk.ScrolledWindow):
 
     def apply_theme(self, theme: TextTheme) -> None:
         """Apply a colour theme to the viewer.  Safe to call at any time."""
-        # Background, text colour, and font size via per-widget CSS.
+        # Background, text colour, font size, and font family via per-widget CSS.
         css_props: list[str] = [f"font-size: {theme.font_size}pt;"]
         if theme.bg:
             css_props.append(f"background-color: {theme.bg};")
         if theme.fg:
             css_props.append(f"color: {theme.fg};")
+        if theme.body_font:
+            # Always include Noto Color Emoji for emoji fallback.
+            generic = "serif" if "Serif" in theme.body_font else "sans-serif"
+            css_props.append(
+                f'font-family: "{theme.body_font}", "Noto Color Emoji", {generic};'
+            )
         block = " ".join(css_props)
         css = f"textview {{ {block} }} textview > text {{ {block} }}"
         self._css_provider.load_from_data(css.encode())
+
+        # Monospace font for preformat blocks.
+        pre_tag = self._buf.get_tag_table().lookup("pre")
+        if pre_tag:
+            pre_tag.set_property("family", theme.mono_font)
+            pre_tag.set_property("family-set", True)
 
         # Per-tag foreground colours.
         self._set_tag_fg("h1",        theme.h1_fg)
