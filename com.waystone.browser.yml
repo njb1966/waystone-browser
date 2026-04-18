@@ -1,0 +1,40 @@
+app-id: com.waystone.browser
+runtime: org.gnome.Platform
+runtime-version: "47"
+sdk: org.gnome.Sdk
+command: waystone
+
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  # User home access for downloads and config
+  - --filesystem=home
+  # WebKit sandbox helper
+  - --env=WEBKIT_FORCE_SANDBOX=0
+
+modules:
+  # aiosqlite — pure Python, not in the GNOME runtime
+  - name: python3-aiosqlite
+    buildsystem: simple
+    build-commands:
+      - pip3 install --prefix=/app --no-deps --no-build-isolation .
+    sources:
+      - type: archive
+        url: https://files.pythonhosted.org/packages/4e/8a/64761f4005f17809769d23e518d915db74e6310474e733e3593cfc854ef1/aiosqlite-0.22.1.tar.gz
+        sha256: 043e0bd78d32888c0a9ca90fc788b38796843360c855a7262a532813133a0650
+
+  # Waystone itself
+  - name: waystone
+    buildsystem: simple
+    build-commands:
+      - pip3 install --prefix=/app --no-deps --no-build-isolation .
+      - install -Dm644 data/com.waystone.browser.desktop
+          /app/share/applications/com.waystone.browser.desktop
+      - install -Dm644 data/com.waystone.browser.svg
+          /app/share/icons/hicolor/scalable/apps/com.waystone.browser.svg
+    sources:
+      - type: dir
+        path: .

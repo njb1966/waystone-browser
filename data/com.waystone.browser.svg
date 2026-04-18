@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Background rounded square -->
+  <rect width="128" height="128" rx="28" fill="#3584e4"/>
+  <!-- Stylised "W" letterform -->
+  <path d="M 20 36 L 36 92 L 52 56 L 64 80 L 76 56 L 92 92 L 108 36"
+        fill="none" stroke="white" stroke-width="10"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

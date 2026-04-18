@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Waystone
+Comment=Multi-protocol web browser (HTTP, Gemini, Gopher)
+Exec=waystone %U
+Icon=com.waystone.browser
+Terminal=false
+Type=Application
+Categories=Network;WebBrowser;
+MimeType=x-scheme-handler/http;x-scheme-handler/https;x-scheme-handler/gemini;x-scheme-handler/gopher;
+StartupWMClass=Waystone
+StartupNotify=true
+Keywords=web;browser;gemini;gopher;internet;
