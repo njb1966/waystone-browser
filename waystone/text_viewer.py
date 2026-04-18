@@ -101,7 +101,7 @@ class TextViewer(Gtk.ScrolledWindow):
                             foreground="#888888")
         t("pre",            family="monospace",         foreground="#268bd2")
         t("link_base",      foreground="#3584e4",
-                            underline=Pango.Underline.SINGLE)
+                            underline=Pango.Underline.NONE)
         t("text")
         # Error page tags
         t("error_heading",  foreground="#e01b24", weight=Pango.Weight.BOLD, scale=1.6)
