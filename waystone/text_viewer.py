@@ -14,18 +14,21 @@ from .gemtext import parse, LineType
 if TYPE_CHECKING:
     from .gopher_client import GopherItem
 
-# Gopher item-type display prefixes
-_GOPHER_PREFIX: dict[str, str] = {
-    "0": "[TXT] ",
-    "1": "[DIR] ",
-    "5": "[ZIP] ",
-    "6": "[UUE] ",
-    "7": "[ ? ] ",
-    "9": "[BIN] ",
-    "g": "[GIF] ",
-    "h": "[WEB] ",
-    "I": "[IMG] ",
-    "s": "[SND] ",
+# Icon and colour-tag for each link type.
+# ⇒ = arrow (text / same-capsule)   ● = globe (directory / external)
+_LINK_ICONS: dict[str, tuple[str, str]] = {
+    "gemini_local": ("⇒", "link_icon_blue"),    # relative / same-capsule
+    "gemini":       ("●", "link_icon_blue"),    # gemini:// cross-capsule
+    "web":          ("●", "link_icon_orange"),  # http(s)://
+    "gopher_dir":   ("●", "link_icon_green"),   # gopher directory / search
+    "gopher_text":  ("⇒", "link_icon_green"),   # gopher text file
+    "gopher_bin":   ("●", "link_icon_green"),   # binary / image / audio
+}
+
+# Short type hints appended to binary Gopher labels so the type is still visible.
+_GOPHER_TYPE_HINT: dict[str, str] = {
+    "5": "[zip]", "6": "[uue]", "9": "[bin]",
+    "g": "[gif]", "I": "[img]", "s": "[snd]",
 }
 
 # Monotonically increasing counter for unique link tag names
@@ -100,13 +103,12 @@ class TextViewer(Gtk.ScrolledWindow):
         t("quote",          style=Pango.Style.ITALIC,  left_margin=24,
                             foreground="#888888")
         t("pre",            family="monospace",         foreground="#268bd2")
-        t("link_base",      foreground="#3584e4",
-                            underline=Pango.Underline.NONE)
-        # Per-protocol link colours (updated by apply_theme)
-        t("link_gemini",    foreground="#3584e4")   # gemini://
-        t("link_gopher",    foreground="#26a269")   # gopher://
-        t("link_web",       foreground="#e66100")   # http(s)://
-        t("link_local",     foreground="#9141ac")   # relative / same-capsule
+        t("link_base",       foreground="#3584e4",
+                             underline=Pango.Underline.NONE)
+        # Icon colour tags — updated by apply_theme(); shape set by _LINK_ICONS
+        t("link_icon_blue",   foreground="#3584e4")
+        t("link_icon_green",  foreground="#26a269")
+        t("link_icon_orange", foreground="#e66100")
         t("text")
         # Error page tags
         t("error_heading",  foreground="#e01b24", weight=Pango.Weight.BOLD, scale=1.6)
@@ -143,10 +145,10 @@ class TextViewer(Gtk.ScrolledWindow):
             elif lt == LineType.PREFORMAT:
                 self._insert(end, line.text + "\n", "pre")
             elif lt == LineType.LINK:
-                orig = line.url or ""
-                url  = self._resolve_url(orig, base_url)
+                orig  = line.url or ""
+                url   = self._resolve_url(orig, base_url)
                 label = line.text or url
-                self._insert_link(end, "⇒ " + label + "\n", url,
+                self._insert_link(end, label + "\n", url,
                                   self._link_type(orig))
             else:
                 # TEXT — empty lines become a blank line
@@ -188,24 +190,22 @@ class TextViewer(Gtk.ScrolledWindow):
         self._scroll_top()
 
     def render_gopher_menu(self, items: "list[GopherItem]"):
-        from .gopher_client import item_url, BINARY_TYPES
+        from .gopher_client import item_url
         self._clear()
         end = self._buf.get_end_iter()
 
         for item in items:
             if item.type == "i":
-                # Informational line — plain text, may be empty
                 self._insert(end, item.display + "\n", "text")
             elif item.type == "3":
-                # Error line
                 self._insert(end, "⚠ " + item.display + "\n", "gopher_err")
             else:
-                url = item_url(item)
-                prefix = _GOPHER_PREFIX.get(item.type, "[???] ")
-                label = prefix + item.display
+                url   = item_url(item)
+                ltype = self._link_type(url, gopher_item_type=item.type)
+                hint  = _GOPHER_TYPE_HINT.get(item.type, "")
+                label = (item.display + f" {hint}") if hint else item.display
                 if url:
-                    self._insert_link(end, label + "\n", url,
-                                      self._link_type(url))
+                    self._insert_link(end, label + "\n", url, ltype)
                 else:
                     self._insert(end, label + "\n", "text")
 
@@ -236,28 +236,35 @@ class TextViewer(Gtk.ScrolledWindow):
             pre_tag.set_property("family-set", True)
 
         # Per-tag foreground colours.
-        self._set_tag_fg("h1",           theme.h1_fg)
-        self._set_tag_fg("h2",           theme.h2_fg)
-        self._set_tag_fg("h3",           theme.h3_fg)
-        self._set_tag_fg("text",         theme.fg)
-        self._set_tag_fg("link_base",    theme.link_fg)   # legacy
-        self._set_tag_fg("link_gemini",  theme.link_fg)
-        self._set_tag_fg("link_gopher",  theme.link_gopher_fg)
-        self._set_tag_fg("link_web",     theme.link_web_fg)
-        self._set_tag_fg("link_local",   theme.link_local_fg)
-        self._set_tag_fg("quote",        theme.quote_fg)
-        self._set_tag_fg("pre",          theme.pre_fg)
+        self._set_tag_fg("h1",              theme.h1_fg)
+        self._set_tag_fg("h2",              theme.h2_fg)
+        self._set_tag_fg("h3",              theme.h3_fg)
+        self._set_tag_fg("text",            theme.fg)
+        self._set_tag_fg("link_base",       theme.link_fg)
+        self._set_tag_fg("link_icon_blue",  theme.link_fg)
+        self._set_tag_fg("link_icon_green", theme.link_gopher_fg)
+        self._set_tag_fg("link_icon_orange",theme.link_web_fg)
+        self._set_tag_fg("quote",           theme.quote_fg)
+        self._set_tag_fg("pre",             theme.pre_fg)
 
     @staticmethod
-    def _link_type(url: str) -> str:
-        """Return the link-type key ('gemini'|'gopher'|'web'|'local') for a URL."""
+    def _link_type(url: str, *, gopher_item_type: str = "") -> str:
+        """Return a key into _LINK_ICONS for this URL / Gopher item type."""
+        if gopher_item_type:
+            if gopher_item_type in ("1", "7"):
+                return "gopher_dir"
+            if gopher_item_type == "0":
+                return "gopher_text"
+            if gopher_item_type == "h" or url.startswith("http"):
+                return "web"
+            return "gopher_bin"
         if url.startswith("gemini://"):
             return "gemini"
         if url.startswith("gopher://"):
-            return "gopher"
+            return "gopher_dir"
         if url.startswith("http://") or url.startswith("https://"):
             return "web"
-        return "local"
+        return "gemini_local"
 
     def _set_tag_fg(self, name: str, colour: Optional[str]) -> None:
         tag = self._buf.get_tag_table().lookup(name)
@@ -283,16 +290,25 @@ class TextViewer(Gtk.ScrolledWindow):
         self._buf.insert_with_tags_by_name(iter_, text, *tag_names)
 
     def _insert_link(self, iter_: Gtk.TextIter, label: str, url: str,
-                     link_type: str = "gemini"):
-        tag_name = _next_link_name()
-        # Per-link tag carries only the URL for click detection.
-        tag = self._buf.create_tag(tag_name)
-        self._link_tags[tag_name] = url
-        style = f"link_{link_type}"
+                     link_type: str = "gemini_local"):
+        icon, icon_tag = _LINK_ICONS.get(link_type, ("⇒", "link_icon_blue"))
+
+        # Per-link anonymous tag — carries only the URL for click detection.
+        url_tag_name = _next_link_name()
+        url_tag = self._buf.create_tag(url_tag_name)
+        self._link_tags[url_tag_name] = url
+
+        # Mark the start so the URL tag can cover icon + label together.
         start_mark = self._buf.create_mark(None, iter_, True)
-        self._buf.insert_with_tags_by_name(iter_, label, style)
+
+        # Coloured protocol icon
+        self._buf.insert_with_tags_by_name(iter_, icon + " ", icon_tag)
+        # Link label in the standard link colour
+        self._buf.insert_with_tags_by_name(iter_, label, "link_base")
+
+        # Stretch the URL tag over the whole span so the icon is also clickable.
         start_iter = self._buf.get_iter_at_mark(start_mark)
-        self._buf.apply_tag(tag, start_iter, iter_)
+        self._buf.apply_tag(url_tag, start_iter, iter_)
         self._buf.delete_mark(start_mark)
 
     def _scroll_top(self):
