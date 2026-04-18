@@ -7,6 +7,8 @@ gi.require_version("Pango", "1.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gtk, Gdk, Pango, GLib
 
+from .themes import TextTheme
+
 from .gemtext import parse, LineType
 
 if TYPE_CHECKING:
@@ -70,6 +72,12 @@ class TextViewer(Gtk.ScrolledWindow):
         self._view.set_top_margin(16)
         self._view.set_bottom_margin(16)
         self.set_child(self._view)
+
+        # Per-instance CSS provider used by apply_theme()
+        self._css_provider = Gtk.CssProvider()
+        self._view.get_style_context().add_provider(
+            self._css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
 
         self._create_permanent_tags()
 
@@ -195,6 +203,40 @@ class TextViewer(Gtk.ScrolledWindow):
 
         self._scroll_top()
 
+    def apply_theme(self, theme: TextTheme) -> None:
+        """Apply a colour theme to the viewer.  Safe to call at any time."""
+        # Background / default text colour via per-widget CSS.
+        css_props: list[str] = []
+        if theme.bg:
+            css_props.append(f"background-color: {theme.bg};")
+        if theme.fg:
+            css_props.append(f"color: {theme.fg};")
+        block = " ".join(css_props)
+        css = (
+            f"textview {{ {block} }} textview > text {{ {block} }}"
+            if block else ""
+        )
+        self._css_provider.load_from_data(css.encode())
+
+        # Per-tag foreground colours.
+        self._set_tag_fg("h1",        theme.h1_fg)
+        self._set_tag_fg("h2",        theme.h2_fg)
+        self._set_tag_fg("h3",        theme.h3_fg)
+        self._set_tag_fg("text",      theme.fg)
+        self._set_tag_fg("link_base", theme.link_fg)
+        self._set_tag_fg("quote",     theme.quote_fg)
+        self._set_tag_fg("pre",       theme.pre_fg)
+
+    def _set_tag_fg(self, name: str, colour: Optional[str]) -> None:
+        tag = self._buf.get_tag_table().lookup(name)
+        if tag is None:
+            return
+        if colour is not None:
+            tag.set_property("foreground", colour)
+            tag.set_property("foreground-set", True)
+        else:
+            tag.set_property("foreground-set", False)
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
@@ -210,11 +252,10 @@ class TextViewer(Gtk.ScrolledWindow):
 
     def _insert_link(self, iter_: Gtk.TextIter, label: str, url: str):
         tag_name = _next_link_name()
-        tag = self._buf.create_tag(tag_name,
-                                   foreground="#3584e4",
-                                   underline=Pango.Underline.SINGLE)
+        # Per-link tag carries only the URL — no colour properties so that
+        # the shared link_base tag (updated by apply_theme) controls styling.
+        tag = self._buf.create_tag(tag_name)
         self._link_tags[tag_name] = url
-        # Apply both the shared link_base style and the unique per-link tag
         start_mark = self._buf.create_mark(None, iter_, True)
         self._buf.insert_with_tags_by_name(iter_, label, "link_base")
         start_iter = self._buf.get_iter_at_mark(start_mark)

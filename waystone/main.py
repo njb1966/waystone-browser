@@ -27,6 +27,7 @@ from .bookmarks_bar import BookmarksBar
 from .history_dialog import HistoryDialog
 from .settings_dialog import SettingsDialog
 from .settings_service import SettingsService
+from .themes import THEMES, DEFAULT_THEME_ID
 
 
 class BrowserWindow(Adw.ApplicationWindow):
@@ -225,6 +226,7 @@ class BrowserWindow(Adw.ApplicationWindow):
             on_load_started=self._on_tab_load_started,
             on_load_finished=self._on_tab_load_finished,
             on_favicon_changed=self._on_tab_favicon_changed,
+            text_theme=self._current_text_theme(),
         )
         page = self.tab_view.append(tab.widget)
         page.set_title("New Tab")
@@ -349,7 +351,17 @@ class BrowserWindow(Adw.ApplicationWindow):
             parent=self,
             settings=self._settings,
             tofu_store=self._tofu,
+            on_theme_changed=self._on_text_theme_changed,
         )
+
+    def _current_text_theme(self):
+        theme_id = self._settings.gemini_theme
+        return THEMES.get(theme_id, THEMES[DEFAULT_THEME_ID])
+
+    def _on_text_theme_changed(self, theme_id: str) -> None:
+        theme = THEMES.get(theme_id, THEMES[DEFAULT_THEME_ID])
+        for tab in self._tabs.values():
+            tab.apply_theme(theme)
 
     # ------------------------------------------------------------------
     # Save As dialog (called from async thread; dialog on GTK thread)

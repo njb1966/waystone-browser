@@ -17,6 +17,7 @@ from .gopher_client import (
 )
 from .tofu_store import TOFUStore
 from .text_viewer import TextViewer
+from .themes import TextTheme, THEMES, DEFAULT_THEME_ID
 
 
 class TabKind(Enum):
@@ -65,6 +66,7 @@ class Tab:
         on_load_started: Optional[Callable] = None,
         on_load_finished: Optional[Callable] = None,
         on_favicon_changed: Optional[Callable] = None,
+        text_theme: Optional[TextTheme] = None,
     ):
         self.kind = kind
         self.current_url = url
@@ -83,6 +85,7 @@ class Tab:
         self._on_load_started = on_load_started
         self._on_load_finished = on_load_finished
         self._on_favicon_changed = on_favicon_changed
+        self._text_theme = text_theme or THEMES[DEFAULT_THEME_ID]
 
         # Back/forward stack for Gemini and Gopher
         self._nav_history: list[str] = []
@@ -205,6 +208,7 @@ class Tab:
 
     def _build_gemini_view(self, url: str) -> Gtk.Widget:
         self._viewer = TextViewer(navigate_cb=self._on_gemini_link_clicked)
+        self._viewer.apply_theme(self._text_theme)
         overlay = self._make_spinner_overlay()
         if url:
             async_utils.run(self._gemini_navigate(url, push=True))
@@ -212,6 +216,7 @@ class Tab:
 
     def _build_gopher_view(self, url: str) -> Gtk.Widget:
         self._viewer = TextViewer(navigate_cb=self._on_gopher_link_clicked)
+        self._viewer.apply_theme(self._text_theme)
         overlay = self._make_spinner_overlay()
         if url:
             async_utils.run(self._gopher_navigate(url, push=True))
@@ -558,6 +563,16 @@ class Tab:
                 pass
         elif self.kind in (TabKind.GEMINI, TabKind.GOPHER):
             self._viewer.find_clear()
+
+    # ------------------------------------------------------------------
+    # Theming (GTK thread)
+    # ------------------------------------------------------------------
+
+    def apply_theme(self, theme: TextTheme) -> None:
+        """Apply a TextTheme to this tab's text viewer (Gemini/Gopher only)."""
+        self._text_theme = theme
+        if hasattr(self, "_viewer"):
+            self._viewer.apply_theme(theme)
 
     # ------------------------------------------------------------------
     # Print (GTK thread)

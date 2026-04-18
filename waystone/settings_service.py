@@ -11,6 +11,7 @@ _DEFAULTS: dict = {
     "js_enabled":          True,
     "show_bookmarks_bar":  True,
     "color_scheme":        "default",   # "default" | "light" | "dark"
+    "gemini_theme":        "system",    # key from themes.THEMES
     "session_urls":        [],
 }
 
@@ -75,6 +76,15 @@ class SettingsService:
     @color_scheme.setter
     def color_scheme(self, value: str) -> None:
         self._data["color_scheme"] = value
+        self.save()
+
+    @property
+    def gemini_theme(self) -> str:
+        return self._data.get("gemini_theme", "system")
+
+    @gemini_theme.setter
+    def gemini_theme(self, value: str) -> None:
+        self._data["gemini_theme"] = value
         self.save()
 
     @property

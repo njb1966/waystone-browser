@@ -8,6 +8,7 @@ from gi.repository import Gtk, Adw, GLib
 from . import async_utils
 from .settings_service import SettingsService
 from .tofu_store import TOFUStore
+from .themes import THEME_IDS, THEME_NAMES
 
 
 class SettingsDialog(Adw.PreferencesDialog):
@@ -16,10 +17,12 @@ class SettingsDialog(Adw.PreferencesDialog):
         parent: Gtk.Widget,
         settings: SettingsService,
         tofu_store: TOFUStore,
+        on_theme_changed=None,
     ) -> None:
         super().__init__()
         self._settings = settings
         self._tofu = tofu_store
+        self._on_theme_changed = on_theme_changed
         self._cert_rows: list[Adw.ActionRow] = []
         self._build()
         self.present(parent)
@@ -78,6 +81,20 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         self.add(gemini)
 
+        appearance_g = Adw.PreferencesGroup(title="Appearance")
+        gemini.add(appearance_g)
+
+        self._theme_row = Adw.ComboRow(
+            title="Colour Theme",
+            subtitle="Applied to Gemini and Gopher pages",
+        )
+        self._theme_row.set_model(Gtk.StringList.new(THEME_NAMES))
+        current_idx = THEME_IDS.index(self._settings.gemini_theme) \
+            if self._settings.gemini_theme in THEME_IDS else 0
+        self._theme_row.set_selected(current_idx)
+        self._theme_row.connect("notify::selected", self._on_theme_row_changed)
+        appearance_g.add(self._theme_row)
+
         self._cert_group = Adw.PreferencesGroup(
             title="Trusted Certificates",
             description="TOFU fingerprints stored for Gemini hosts. "
@@ -99,6 +116,12 @@ class SettingsDialog(Adw.PreferencesDialog):
 
     def _on_bar_toggled(self, row: Adw.SwitchRow, _param) -> None:
         self._settings.show_bookmarks_bar = row.get_active()
+
+    def _on_theme_row_changed(self, row: Adw.ComboRow, _param) -> None:
+        theme_id = THEME_IDS[row.get_selected()]
+        self._settings.gemini_theme = theme_id
+        if self._on_theme_changed:
+            self._on_theme_changed(theme_id)
 
     def _on_scheme_changed(self, row: Adw.ComboRow, _param) -> None:
         keys   = ["default", "light", "dark"]
