@@ -44,6 +44,8 @@ class BrowserWindow(Adw.ApplicationWindow):
         super().__init__(**kwargs)
         self.set_title("Waystone")
         self.set_default_size(1280, 800)
+        self.set_icon_name("com.waystone.browser")
+        self.connect("close-request", self._on_close_request)
 
         self._bookmarks = bookmark_service
         self._history = history_service
@@ -53,6 +55,7 @@ class BrowserWindow(Adw.ApplicationWindow):
 
         self._build_ui()
         self._register_actions()
+        self._restore_or_new_tab()
 
     # ------------------------------------------------------------------
     # UI construction
@@ -123,7 +126,6 @@ class BrowserWindow(Adw.ApplicationWindow):
         root.append(self.tab_view)
 
         self._update_nav_buttons(None)
-        self._open_new_tab()
 
     def _build_menu(self) -> Gio.Menu:
         menu = Gio.Menu()
@@ -162,6 +164,8 @@ class BrowserWindow(Adw.ApplicationWindow):
             ("find-prev",            lambda *_: self._find_prev()),
             ("print",                lambda *_: self._print_page()),
             ("show-about",           lambda *_: self._show_about()),
+            # Duplicate tab
+            ("duplicate-tab",        lambda *_: self._duplicate_tab()),
         ]:
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", cb)
@@ -186,11 +190,12 @@ class BrowserWindow(Adw.ApplicationWindow):
         app.set_accels_for_action("win.zoom-in",              ["<Control>equal", "<Control>plus"])
         app.set_accels_for_action("win.zoom-out",             ["<Control>minus"])
         app.set_accels_for_action("win.zoom-reset",           ["<Control>0"])
-        # Find / Print
+        # Find / Print / Duplicate
         app.set_accels_for_action("win.find",                 ["<Control>f"])
         app.set_accels_for_action("win.find-next",            ["F3", "<Control>g"])
         app.set_accels_for_action("win.find-prev",            ["<Shift>F3", "<Control><Shift>g"])
         app.set_accels_for_action("win.print",                ["<Control>p"])
+        app.set_accels_for_action("win.duplicate-tab",        ["<Control><Shift>t"])
 
     # ------------------------------------------------------------------
     # Tab management
@@ -216,6 +221,7 @@ class BrowserWindow(Adw.ApplicationWindow):
             on_nav_state_changed=self._on_tab_nav_state_changed,
             on_load_started=self._on_tab_load_started,
             on_load_finished=self._on_tab_load_finished,
+            on_favicon_changed=self._on_tab_favicon_changed,
         )
         page = self.tab_view.append(tab.widget)
         page.set_title("New Tab")
@@ -468,6 +474,7 @@ class BrowserWindow(Adw.ApplicationWindow):
         self.address_bar.set_text(uri)
         self._update_nav_buttons(tab)
         async_utils.run(self._refresh_bookmark_star_async(uri))
+        self._update_window_title(tab)
         self._run_find()
 
     def _close_current_tab(self):
@@ -506,6 +513,8 @@ class BrowserWindow(Adw.ApplicationWindow):
         page = self._page_for_tab(tab)
         if page:
             page.set_title(title or "New Tab")
+        if tab is self._active_tab():
+            self._update_window_title(tab)
 
     def _on_tab_uri_changed(self, tab: Tab, uri: str):
         if tab is self._active_tab():
@@ -643,6 +652,66 @@ class BrowserWindow(Adw.ApplicationWindow):
             comments="A multi-protocol browser for Linux supporting "
                      "HTTP/HTTPS, Gemini, and Gopher.",
         ).present(self)
+
+    # ------------------------------------------------------------------
+    # Window title
+    # ------------------------------------------------------------------
+
+    def _update_window_title(self, tab: "Tab | None" = None):
+        if tab is None:
+            tab = self._active_tab()
+        if tab:
+            title = tab.get_title()
+            if title and title != "New Tab":
+                self.set_title(f"{title} — Waystone")
+                return
+        self.set_title("Waystone")
+
+    # ------------------------------------------------------------------
+    # Favicon
+    # ------------------------------------------------------------------
+
+    def _on_tab_favicon_changed(self, tab: "Tab", icon: "Optional[Gio.Icon]"):
+        page = self._page_for_tab(tab)
+        if page:
+            page.set_icon(icon if icon is not None else _tab_icon())
+
+    # ------------------------------------------------------------------
+    # Duplicate tab
+    # ------------------------------------------------------------------
+
+    def _duplicate_tab(self):
+        tab = self._active_tab()
+        if tab:
+            url = tab.get_uri()
+            if url and url != "about:blank":
+                self._open_new_tab(url)
+
+    # ------------------------------------------------------------------
+    # Session restore
+    # ------------------------------------------------------------------
+
+    def _restore_or_new_tab(self):
+        """Open the previous session's tabs, or a single new tab if none saved."""
+        urls = self._settings.session_urls
+        if urls:
+            for url in urls:
+                self._open_new_tab(url)
+        else:
+            self._open_new_tab()
+
+    def _on_close_request(self, _win) -> bool:
+        """Save open tab URLs so they can be restored next launch."""
+        urls = []
+        for i in range(self.tab_view.get_n_pages()):
+            page = self.tab_view.get_nth_page(i)
+            tab = self._tabs.get(page)
+            if tab:
+                url = tab.get_uri()
+                if url and url != "about:blank":
+                    urls.append(url)
+        self._settings.session_urls = urls
+        return False  # allow the window to close
 
     # ------------------------------------------------------------------
     # Helpers

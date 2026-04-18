@@ -11,6 +11,7 @@ _DEFAULTS: dict = {
     "js_enabled":          True,
     "show_bookmarks_bar":  True,
     "color_scheme":        "default",   # "default" | "light" | "dark"
+    "session_urls":        [],
 }
 
 
@@ -74,4 +75,13 @@ class SettingsService:
     @color_scheme.setter
     def color_scheme(self, value: str) -> None:
         self._data["color_scheme"] = value
+        self.save()
+
+    @property
+    def session_urls(self) -> list:
+        return list(self._data.get("session_urls", []))
+
+    @session_urls.setter
+    def session_urls(self, value: list) -> None:
+        self._data["session_urls"] = list(value)
         self.save()

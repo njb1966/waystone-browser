@@ -18,15 +18,21 @@ Built with Python, GTK 4, Libadwaita, and WebKitGTK.
 
 ## Features
 
-- **Tabbed browsing** — open/close tabs, Ctrl+Tab to cycle
+- **Tabbed browsing** — open/close/duplicate tabs; Ctrl+Tab to cycle; middle-click to close
+- **Session restore** — reopens your last tabs on next launch
 - **Bookmarks** — add with Ctrl+D; organised into folders; bookmarks bar for quick access
 - **History** — auto-recorded per navigation; searchable
+- **Find in page** — Ctrl+F with live match highlighting; F3 / Shift+F3 to step through results
 - **Gemini TOFU** — certificate trust-on-first-use with change detection
 - **Gemini input prompts** — handles status 10/11 (sensitive) requests
 - **Gopher search** — type-7 search dialogs
 - **Loading indicators** — spinner overlay for Gemini/Gopher tabs
+- **Tab titles** — derived from page headings (Gemini/Gopher) or the document title (web)
+- **Web favicons** — site favicons appear in the tab strip for web tabs
+- **Right-click context menu** — "Open Link in New Tab" for web tabs
 - **Dark mode** — System Default / Light / Dark via Settings
 - **Zoom** — Ctrl+= / Ctrl+- / Ctrl+0 (web tabs)
+- **Print** — Ctrl+P opens the native print dialog (web tabs)
 - **Open in new tab** — `target="_blank"` and middle-click links open in a new tab
 
 ---
@@ -110,6 +116,7 @@ flatpak-builder --user --install --force-clean \
 |----------|--------|
 | Ctrl+T | New tab |
 | Ctrl+W | Close tab |
+| Ctrl+Shift+T | Duplicate tab |
 | Ctrl+Tab | Next tab |
 | Ctrl+Shift+Tab | Previous tab |
 
@@ -122,12 +129,20 @@ flatpak-builder --user --install --force-clean \
 | Ctrl+H | Open History |
 | Ctrl+Shift+B | Toggle bookmarks bar |
 
-### Zoom (web tabs)
+### Find in page
+| Shortcut | Action |
+|----------|--------|
+| Ctrl+F | Open find bar |
+| F3 / Ctrl+G | Next match |
+| Shift+F3 / Ctrl+Shift+G | Previous match |
+
+### Zoom & Print (web tabs)
 | Shortcut | Action |
 |----------|--------|
 | Ctrl+= / Ctrl++ | Zoom in |
 | Ctrl+- | Zoom out |
 | Ctrl+0 | Reset zoom |
+| Ctrl+P | Print |
 
 ---
 

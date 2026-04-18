@@ -7,7 +7,7 @@ from urllib.parse import urlparse, urlunparse, urljoin, quote
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("WebKit", "6.0")
-from gi.repository import Gtk, WebKit, GLib
+from gi.repository import Gtk, WebKit, GLib, Gio
 
 from . import async_utils
 from .gemini_client import fetch as gemini_fetch, GeminiError
@@ -64,6 +64,7 @@ class Tab:
         on_nav_state_changed: Optional[Callable] = None,
         on_load_started: Optional[Callable] = None,
         on_load_finished: Optional[Callable] = None,
+        on_favicon_changed: Optional[Callable] = None,
     ):
         self.kind = kind
         self.current_url = url
@@ -81,6 +82,7 @@ class Tab:
         self._on_nav_state_changed = on_nav_state_changed
         self._on_load_started = on_load_started
         self._on_load_finished = on_load_finished
+        self._on_favicon_changed = on_favicon_changed
 
         # Back/forward stack for Gemini and Gopher
         self._nav_history: list[str] = []
@@ -191,10 +193,12 @@ class Tab:
         self._web_view.set_vexpand(True)
         self._web_view.set_hexpand(True)
         self._web_view.get_settings().set_enable_javascript(self._js_enabled)
-        self._web_view.connect("notify::title", self._on_wk_title)
-        self._web_view.connect("notify::uri", self._on_wk_uri)
-        self._web_view.connect("load-changed", self._on_wk_load_changed)
-        self._web_view.connect("decide-policy", self._on_wk_decide_policy)
+        self._web_view.connect("notify::title",   self._on_wk_title)
+        self._web_view.connect("notify::uri",     self._on_wk_uri)
+        self._web_view.connect("notify::favicon", self._on_wk_favicon)
+        self._web_view.connect("load-changed",    self._on_wk_load_changed)
+        self._web_view.connect("decide-policy",   self._on_wk_decide_policy)
+        self._web_view.connect("context-menu",    self._on_wk_context_menu)
         if url:
             self._web_view.load_uri(url)
         return self._web_view
@@ -449,6 +453,8 @@ class Tab:
         if self._spinner is not None:
             self._spinner.set_visible(True)
             self._spinner.start()
+        if self._on_favicon_changed:
+            self._on_favicon_changed(self, None)   # reset to app icon during load
         if self._on_load_started:
             self._on_load_started(self)
 
@@ -578,3 +584,54 @@ class Tab:
             decision.ignore()
             return True
         return False
+
+    def _on_wk_favicon(self, _wv, _param):
+        """Convert the WebKit favicon texture to a Gio.Icon and notify BrowserWindow."""
+        if not self._on_favicon_changed:
+            return
+        texture = self._web_view.get_favicon()
+        if not texture:
+            return
+        try:
+            png_bytes = texture.save_to_png_bytes()
+            icon = Gio.BytesIcon.new(png_bytes)
+            self._on_favicon_changed(self, icon)
+        except Exception:
+            pass  # fall back to app icon
+
+    def _on_wk_context_menu(self, _wv, menu, hit_test):
+        """Customise the WebKit right-click context menu."""
+        link_uri = hit_test.get_link_uri() if hit_test.context_is_link() else None
+
+        if link_uri and self._open_url_cb:
+            # Remove the stock "Open Link in New Window" item (misleading label —
+            # our decide-policy handler already redirects it, but the text is wrong).
+            for i in range(menu.get_n_items()):
+                item = menu.get_item_at_position(i)
+                if item and item.get_stock_action() == \
+                        WebKit.ContextMenuAction.OPEN_LINK_IN_NEW_WINDOW:
+                    menu.remove(item)
+                    break
+
+            # Add "Open Link in New Tab" backed by a GAction.
+            action = Gio.SimpleAction.new("open-link-new-tab", None)
+            captured = link_uri
+            action.connect(
+                "activate",
+                lambda *_: GLib.idle_add(self._open_url_cb, captured),
+            )
+            menu.prepend(
+                WebKit.ContextMenuItem.new_from_gaction(
+                    action, "Open Link in New Tab", None
+                )
+            )
+
+        # Remove "Inspect Element" — no developer tools in this browser.
+        for i in range(menu.get_n_items()):
+            item = menu.get_item_at_position(i)
+            if item and item.get_stock_action() == \
+                    WebKit.ContextMenuAction.INSPECT_ELEMENT:
+                menu.remove(item)
+                break
+
+        return False  # show the (modified) menu
