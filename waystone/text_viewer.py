@@ -145,6 +145,14 @@ class TextViewer(Gtk.ScrolledWindow):
         self._buf.insert_with_tags_by_name(end, text, "text")
         self._scroll_top()
 
+    def render_info(self, message: str):
+        """Render a neutral informational message (e.g. download complete)."""
+        self._clear()
+        end = self._buf.get_end_iter()
+        self._insert(end, "\n", "text")
+        self._insert(end, message + "\n", "text")
+        self._scroll_top()
+
     def render_error(self, message: str):
         self._clear()
         end = self._buf.get_end_iter()

@@ -335,10 +335,29 @@ class Tab:
                 text = response.body.decode(charset, errors="replace")
                 GLib.idle_add(lambda t=text: self._viewer.render_plain(t))
             else:
-                GLib.idle_add(
-                    self._viewer.render_error,
-                    f"Binary content ({mime}) — download not yet supported.",
-                )
+                # Non-text content — prompt for a save location and download.
+                parsed_path = urlparse(url).path
+                filename = parsed_path.rstrip("/").rsplit("/", 1)[-1] or "download"
+                if self._save_as_cb:
+                    save_path = await self._save_as_cb(filename)
+                    if save_path:
+                        try:
+                            loop = async_utils.get_loop()
+                            await loop.run_in_executor(
+                                None,
+                                lambda p=save_path, d=response.body: open(p, "wb").write(d),
+                            )
+                            GLib.idle_add(
+                                self._viewer.render_info,
+                                f"Saved to: {save_path}",
+                            )
+                        except OSError as exc:
+                            GLib.idle_add(self._viewer.render_error, f"Save failed: {exc}")
+                else:
+                    GLib.idle_add(
+                        self._viewer.render_error,
+                        f"Binary content ({mime}) — no save dialog available.",
+                    )
                 GLib.idle_add(self._gtk_load_done, url)
                 return
 
@@ -410,7 +429,7 @@ class Tab:
                             None, lambda p=save_path, d=response.body: open(p, "wb").write(d)
                         )
                         GLib.idle_add(
-                            self._viewer.render_error,
+                            self._viewer.render_info,
                             f"Saved to: {save_path}",
                         )
                     except OSError as e:
