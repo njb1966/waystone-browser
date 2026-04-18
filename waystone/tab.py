@@ -580,14 +580,14 @@ class Tab:
             nav_action = decision.get_navigation_action()
             url = nav_action.get_request().get_uri()
             if self._open_url_cb and url:
-                GLib.idle_add(self._open_url_cb, url)
+                GLib.idle_add(lambda u=url: self._open_url_cb(u) and False)
             decision.ignore()
             return True
         if decision_type == WebKit.PolicyDecisionType.NAVIGATION_ACTION:
             nav_action = decision.get_navigation_action()
             url = nav_action.get_request().get_uri() or ""
             if url.startswith(("gemini://", "gopher://")) and self._open_url_cb:
-                GLib.idle_add(self._open_url_cb, url)
+                GLib.idle_add(lambda u=url: self._open_url_cb(u) and False)
                 decision.ignore()
                 return True
         return False
@@ -625,7 +625,7 @@ class Tab:
             captured = link_uri
             action.connect(
                 "activate",
-                lambda *_: GLib.idle_add(self._open_url_cb, captured),
+                lambda *_, u=captured: GLib.idle_add(lambda: self._open_url_cb(u) and False),
             )
             menu.prepend(
                 WebKit.ContextMenuItem.new_from_gaction(
