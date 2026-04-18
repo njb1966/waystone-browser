@@ -352,14 +352,22 @@ class BrowserWindow(Adw.ApplicationWindow):
             settings=self._settings,
             tofu_store=self._tofu,
             on_theme_changed=self._on_text_theme_changed,
+            on_size_changed=self._on_text_size_changed,
         )
 
     def _current_text_theme(self):
+        from dataclasses import replace
         theme_id = self._settings.gemini_theme
-        return THEMES.get(theme_id, THEMES[DEFAULT_THEME_ID])
+        base = THEMES.get(theme_id, THEMES[DEFAULT_THEME_ID])
+        return replace(base, font_size=self._settings.text_size)
 
     def _on_text_theme_changed(self, theme_id: str) -> None:
-        theme = THEMES.get(theme_id, THEMES[DEFAULT_THEME_ID])
+        theme = self._current_text_theme()
+        for tab in self._tabs.values():
+            tab.apply_theme(theme)
+
+    def _on_text_size_changed(self, _size: int) -> None:
+        theme = self._current_text_theme()
         for tab in self._tabs.values():
             tab.apply_theme(theme)
 

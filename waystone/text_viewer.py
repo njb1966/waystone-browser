@@ -205,17 +205,14 @@ class TextViewer(Gtk.ScrolledWindow):
 
     def apply_theme(self, theme: TextTheme) -> None:
         """Apply a colour theme to the viewer.  Safe to call at any time."""
-        # Background / default text colour via per-widget CSS.
-        css_props: list[str] = []
+        # Background, text colour, and font size via per-widget CSS.
+        css_props: list[str] = [f"font-size: {theme.font_size}pt;"]
         if theme.bg:
             css_props.append(f"background-color: {theme.bg};")
         if theme.fg:
             css_props.append(f"color: {theme.fg};")
         block = " ".join(css_props)
-        css = (
-            f"textview {{ {block} }} textview > text {{ {block} }}"
-            if block else ""
-        )
+        css = f"textview {{ {block} }} textview > text {{ {block} }}"
         self._css_provider.load_from_data(css.encode())
 
         # Per-tag foreground colours.

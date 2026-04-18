@@ -12,17 +12,22 @@ from .themes import THEME_IDS, THEME_NAMES
 
 
 class SettingsDialog(Adw.PreferencesDialog):
+    _SIZE_LABELS = ["Small (12 pt)", "Normal (14 pt)", "Large (16 pt)", "X-Large (19 pt)"]
+    _SIZE_VALUES = [12, 14, 16, 19]
+
     def __init__(
         self,
         parent: Gtk.Widget,
         settings: SettingsService,
         tofu_store: TOFUStore,
         on_theme_changed=None,
+        on_size_changed=None,
     ) -> None:
         super().__init__()
         self._settings = settings
         self._tofu = tofu_store
         self._on_theme_changed = on_theme_changed
+        self._on_size_changed = on_size_changed
         self._cert_rows: list[Adw.ActionRow] = []
         self._build()
         self.present(parent)
@@ -84,6 +89,18 @@ class SettingsDialog(Adw.PreferencesDialog):
         appearance_g = Adw.PreferencesGroup(title="Appearance")
         gemini.add(appearance_g)
 
+        self._size_row = Adw.ComboRow(
+            title="Text Size",
+            subtitle="Base font size for Gemini and Gopher pages",
+        )
+        self._size_row.set_model(Gtk.StringList.new(self._SIZE_LABELS))
+        cur_size = self._settings.text_size
+        size_idx = self._SIZE_VALUES.index(cur_size) \
+            if cur_size in self._SIZE_VALUES else 1
+        self._size_row.set_selected(size_idx)
+        self._size_row.connect("notify::selected", self._on_size_row_changed)
+        appearance_g.add(self._size_row)
+
         self._theme_row = Adw.ComboRow(
             title="Colour Theme",
             subtitle="Applied to Gemini and Gopher pages",
@@ -116,6 +133,12 @@ class SettingsDialog(Adw.PreferencesDialog):
 
     def _on_bar_toggled(self, row: Adw.SwitchRow, _param) -> None:
         self._settings.show_bookmarks_bar = row.get_active()
+
+    def _on_size_row_changed(self, row: Adw.ComboRow, _param) -> None:
+        size = self._SIZE_VALUES[row.get_selected()]
+        self._settings.text_size = size
+        if self._on_size_changed:
+            self._on_size_changed(size)
 
     def _on_theme_row_changed(self, row: Adw.ComboRow, _param) -> None:
         theme_id = THEME_IDS[row.get_selected()]

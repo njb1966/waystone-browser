@@ -7,19 +7,20 @@ from typing import Optional
 @dataclass
 class TextTheme:
     """
-    Colour settings applied to TextViewer.
+    Colour and font settings applied to TextViewer.
     All colour fields accept a CSS colour string or None.
     None means "inherit from the system / GTK theme".
     """
     name: str
-    bg:       Optional[str] = None   # viewer background
-    fg:       Optional[str] = None   # body text
-    h1_fg:    Optional[str] = None
-    h2_fg:    Optional[str] = None
-    h3_fg:    Optional[str] = None
-    link_fg:  Optional[str] = "#3584e4"
-    quote_fg: Optional[str] = "#888888"
-    pre_fg:   Optional[str] = "#268bd2"
+    bg:        Optional[str] = None   # viewer background
+    fg:        Optional[str] = None   # body text
+    h1_fg:     Optional[str] = None
+    h2_fg:     Optional[str] = None
+    h3_fg:     Optional[str] = None
+    link_fg:   Optional[str] = "#3584e4"
+    quote_fg:  Optional[str] = "#888888"
+    pre_fg:    Optional[str] = "#268bd2"
+    font_size: int            = 14    # base font size in points
 
 
 THEMES: dict[str, TextTheme] = {
