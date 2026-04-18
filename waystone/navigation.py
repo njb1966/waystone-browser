@@ -32,9 +32,12 @@ def normalize_url(raw: str) -> str:
 
     parsed = urlparse(raw)
 
-    # If no scheme, assume https
+    # If no scheme, infer from the shape of the input
     if not parsed.scheme:
-        raw = "https://" + raw
+        if raw.startswith("/"):
+            raw = "file://" + raw
+        else:
+            raw = "https://" + raw
         parsed = urlparse(raw)
 
     return urlunparse(parsed)

@@ -10,9 +10,9 @@ from gi.repository import Gtk, Adw, Gio, GLib, Gdk
 
 from . import async_utils
 
-_DATA_DIR   = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "data"))
-_ICONS_DIR  = os.path.join(_DATA_DIR, "icons")
-_NEWTAB_PATH = os.path.join(_DATA_DIR, "newtab.html")
+_DATA_DIR    = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "data"))
+_ICONS_DIR   = os.path.join(_DATA_DIR, "icons")
+_NEWTAB_PATH = os.path.join(os.path.dirname(__file__), "newtab.html")
 
 def _tab_icon() -> "Gio.Icon":
     return Gio.ThemedIcon.new("com.waystone.browser")
