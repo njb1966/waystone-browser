@@ -1,12 +1,15 @@
 """Bookmark manager dialog with folder support."""
 
+import html as _html_mod
+import html.parser as _html_parser
+import time
 from typing import Optional
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
 gi.require_version("Pango", "1.0")
-from gi.repository import Gtk, Adw, Gdk, Pango, GLib
+from gi.repository import Gtk, Adw, Gdk, Pango, GLib, Gio
 
 from . import async_utils
 from .bookmark_service import BookmarkService
@@ -14,6 +17,103 @@ from .bookmark_service import BookmarkService
 # Folder-selection sentinels
 _ALL     = "__all__"    # show every bookmark
 _UNFILED = "__none__"   # show only bookmarks with folder = NULL
+
+
+# ---------------------------------------------------------------------------
+# Netscape HTML bookmark format helpers
+# ---------------------------------------------------------------------------
+
+class _NetscapeParser(_html_parser.HTMLParser):
+    """Parses Netscape-format HTML bookmark files."""
+
+    def __init__(self):
+        super().__init__()
+        self.bookmarks: list[dict] = []
+        self._folder_stack: list[Optional[str]] = []
+        self._current_folder: Optional[str] = None
+        self._pending_folder: Optional[str] = None  # H3 text, activated on next <DL>
+        self._in_a = False
+        self._in_h3 = False
+        self._pending_url: Optional[str] = None
+        self._buf = ""
+
+    def handle_starttag(self, tag, attrs):
+        attrs_dict = dict(attrs)
+        if tag == "a":
+            self._in_a = True
+            self._pending_url = attrs_dict.get("href", "")
+            self._buf = ""
+        elif tag == "h3":
+            self._in_h3 = True
+            self._buf = ""
+        elif tag == "dl":
+            # Push parent folder; if an H3 preceded this DL, activate it now.
+            self._folder_stack.append(self._current_folder)
+            if self._pending_folder is not None:
+                self._current_folder = self._pending_folder
+                self._pending_folder = None
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self._in_a:
+            self._in_a = False
+            url = (self._pending_url or "").strip()
+            if url:
+                self.bookmarks.append({
+                    "url": url,
+                    "title": self._buf.strip(),
+                    "folder": self._current_folder,
+                })
+            self._pending_url = None
+            self._buf = ""
+        elif tag == "h3" and self._in_h3:
+            self._in_h3 = False
+            # Don't activate yet — wait for the <DL> that follows.
+            self._pending_folder = self._buf.strip() or None
+            self._buf = ""
+        elif tag == "dl" and self._folder_stack:
+            # Restore parent folder when leaving a DL block.
+            self._current_folder = self._folder_stack.pop()
+
+    def handle_data(self, data):
+        if self._in_a or self._in_h3:
+            self._buf += data
+
+
+def _build_netscape_html(bookmarks: list[dict]) -> str:
+    lines = [
+        "<!DOCTYPE NETSCAPE-Bookmark-file-1>",
+        "<!-- This is an automatically generated file. -->",
+        '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+        "<TITLE>Waystone Bookmarks</TITLE>",
+        "<H1>Bookmarks</H1>",
+        "<DL><p>",
+    ]
+
+    unfiled = [b for b in bookmarks if not b.get("folder")]
+    by_folder: dict[str, list[dict]] = {}
+    for b in bookmarks:
+        f = b.get("folder")
+        if f:
+            by_folder.setdefault(f, []).append(b)
+
+    for b in unfiled:
+        title = _html_mod.escape(b["title"] or b["url"])
+        url   = _html_mod.escape(b["url"])
+        ts    = b.get("created_at", int(time.time()))
+        lines.append(f'    <DT><A HREF="{url}" ADD_DATE="{ts}">{title}</A>')
+
+    for folder_name in sorted(by_folder):
+        lines.append(f'    <DT><H3>{_html_mod.escape(folder_name)}</H3>')
+        lines.append("    <DL><p>")
+        for b in by_folder[folder_name]:
+            title = _html_mod.escape(b["title"] or b["url"])
+            url   = _html_mod.escape(b["url"])
+            ts    = b.get("created_at", int(time.time()))
+            lines.append(f'        <DT><A HREF="{url}" ADD_DATE="{ts}">{title}</A>')
+        lines.append("    </DL><p>")
+
+    lines.append("</DL><p>")
+    return "\n".join(lines)
 
 
 class BookmarkDialog(Adw.Window):
@@ -37,6 +137,7 @@ class BookmarkDialog(Adw.Window):
         self._folders:        list[str]  = []
         self._selected_folder: str       = _ALL
         self._folder_rows:    dict[str, Gtk.ListBoxRow] = {}
+        self._checked_folders: set[str]  = set()
 
         self._build_ui()
         async_utils.run(self._load())
@@ -56,6 +157,28 @@ class BookmarkDialog(Adw.Window):
         self._new_folder_btn.set_tooltip_text("New Folder")
         self._new_folder_btn.connect("clicked", lambda _: self._prompt_new_folder_empty())
         header.pack_end(self._new_folder_btn)
+
+        btn_clear = Gtk.Button(icon_name="user-trash-symbolic")
+        btn_clear.set_tooltip_text("Delete all bookmarks")
+        btn_clear.add_css_class("destructive-action")
+        btn_clear.connect("clicked", lambda _: self._confirm_clear_all())
+        header.pack_end(btn_clear)
+
+        self._btn_delete_selected = Gtk.Button(label="Delete Selected")
+        self._btn_delete_selected.add_css_class("destructive-action")
+        self._btn_delete_selected.connect("clicked", lambda _: self._confirm_delete_selected())
+        self._btn_delete_selected.set_visible(False)
+        header.pack_start(self._btn_delete_selected)
+
+        btn_export = Gtk.Button(icon_name="document-send-symbolic")
+        btn_export.set_tooltip_text("Export bookmarks to HTML")
+        btn_export.connect("clicked", self._on_export_clicked)
+        header.pack_end(btn_export)
+
+        btn_import = Gtk.Button(icon_name="document-open-symbolic")
+        btn_import.set_tooltip_text("Import bookmarks from HTML")
+        btn_import.connect("clicked", self._on_import_clicked)
+        header.pack_end(btn_import)
 
         self._search = Gtk.SearchEntry()
         self._search.set_placeholder_text("Search bookmarks…")
@@ -135,6 +258,8 @@ class BookmarkDialog(Adw.Window):
         while child := self._folder_list.get_first_child():
             self._folder_list.remove(child)
         self._folder_rows.clear()
+        self._checked_folders.clear()
+        self._btn_delete_selected.set_visible(False)
 
         all_row    = self._make_sidebar_row("All Bookmarks", "bookmark-collection-symbolic", _ALL)
         unfiled_row = self._make_sidebar_row("Unfiled",       "folder-symbolic",              _UNFILED)
@@ -170,8 +295,13 @@ class BookmarkDialog(Adw.Window):
         box.append(lbl)
         row.set_child(box)
 
-        # Right-click menu for named folders (rename / delete)
         if folder_key not in (_ALL, _UNFILED):
+            chk = Gtk.CheckButton()
+            chk.set_valign(Gtk.Align.CENTER)
+            chk.set_tooltip_text("Select for bulk delete")
+            chk.connect("toggled", self._on_folder_checked, folder_key)
+            box.append(chk)
+
             gesture = Gtk.GestureClick()
             gesture.set_button(3)
             gesture.connect(
@@ -434,6 +564,176 @@ class BookmarkDialog(Adw.Window):
         lbl.set_margin_bottom(4)
         row.set_child(lbl)
         return row
+
+    # ------------------------------------------------------------------
+    # Bulk folder delete
+    # ------------------------------------------------------------------
+
+    def _on_folder_checked(self, chk: Gtk.CheckButton, folder_key: str) -> None:
+        if chk.get_active():
+            self._checked_folders.add(folder_key)
+        else:
+            self._checked_folders.discard(folder_key)
+        n = len(self._checked_folders)
+        self._btn_delete_selected.set_label(f"Delete Selected ({n})" if n else "Delete Selected")
+        self._btn_delete_selected.set_visible(n > 0)
+
+    def _confirm_delete_selected(self) -> None:
+        folders = list(self._checked_folders)
+        n = len(folders)
+        if not n:
+            return
+        names = ", ".join(f'"{f}"' for f in sorted(folders))
+        dlg = Adw.AlertDialog(
+            heading=f"Delete {n} Folder{'s' if n != 1 else ''}",
+            body=f"Delete {names}? Their bookmarks will be moved to Unfiled.",
+        )
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("delete", f"Delete {n} Folder{'s' if n != 1 else ''}")
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
+        dlg.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.connect(
+            "response",
+            lambda _d, r, f=folders: async_utils.run(self._do_delete_selected(f)) if r == "delete" else None,
+        )
+        dlg.present(self)
+
+    async def _do_delete_selected(self, folders: list[str]) -> None:
+        for folder_name in folders:
+            await self._service.rename_folder(folder_name, None)
+            for b in self._all_bookmarks:
+                if b.get("folder") == folder_name:
+                    b["folder"] = None
+        self._folders = [f for f in self._folders if f not in folders]
+        if self._selected_folder in folders:
+            self._selected_folder = _ALL
+        GLib.idle_add(self._rebuild_sidebar)
+        GLib.idle_add(self._rebuild_bm_list)
+        self._notify_change()
+
+    # ------------------------------------------------------------------
+    # Clear all
+    # ------------------------------------------------------------------
+
+    def _confirm_clear_all(self) -> None:
+        dlg = Adw.AlertDialog(
+            heading="Delete All Bookmarks",
+            body="This will permanently delete every bookmark. This cannot be undone.",
+        )
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("delete", "Delete All")
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
+        dlg.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.connect("response", lambda _d, r: async_utils.run(self._do_clear_all()) if r == "delete" else None)
+        dlg.present(self)
+
+    async def _do_clear_all(self) -> None:
+        await self._service.clear_all()
+        self._all_bookmarks = []
+        self._folders = []
+        self._selected_folder = _ALL
+        GLib.idle_add(self._rebuild_sidebar)
+        GLib.idle_add(self._rebuild_bm_list)
+        self._notify_change()
+
+    # ------------------------------------------------------------------
+    # Import / Export
+    # ------------------------------------------------------------------
+
+    def _on_import_clicked(self, _btn) -> None:
+        f = Gtk.FileFilter()
+        f.set_name("HTML Files")
+        f.add_mime_type("text/html")
+        f.add_pattern("*.html")
+        f.add_pattern("*.htm")
+        store = Gio.ListStore.new(Gtk.FileFilter)
+        store.append(f)
+
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Import Bookmarks from HTML")
+        dialog.set_filters(store)
+        dialog.open(self, None, self._on_import_chosen)
+
+    def _on_import_chosen(self, dialog: Gtk.FileDialog, result) -> None:
+        try:
+            gfile = dialog.open_finish(result)
+        except GLib.Error:
+            return
+        if gfile:
+            async_utils.run(self._do_import(gfile.get_path()))
+
+    async def _do_import(self, path: str) -> None:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                content = fh.read()
+        except OSError:
+            GLib.idle_add(self._show_import_error)
+            return
+
+        parser = _NetscapeParser()
+        parser.feed(content)
+
+        count = 0
+        for bm in parser.bookmarks:
+            if bm["url"]:
+                folder = bm["folder"]
+                # Don't import into "Bookmarks Bar" automatically
+                await self._service.add(bm["url"], bm["title"], folder)
+                count += 1
+
+        bookmarks = await self._service.list_all()
+        GLib.idle_add(self._populate, bookmarks)
+        GLib.idle_add(self._notify_change)
+        GLib.idle_add(self._show_import_done, count)
+
+    def _show_import_error(self) -> None:
+        dlg = Adw.AlertDialog(heading="Import Failed",
+                              body="Could not read the selected file.")
+        dlg.add_response("ok", "OK")
+        dlg.present(self)
+
+    def _show_import_done(self, count: int) -> None:
+        dlg = Adw.AlertDialog(
+            heading="Import Complete",
+            body=f"Imported {count} bookmark{'s' if count != 1 else ''}.",
+        )
+        dlg.add_response("ok", "OK")
+        dlg.present(self)
+
+    def _on_export_clicked(self, _btn) -> None:
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Export Bookmarks to HTML")
+        dialog.set_initial_name("bookmarks.html")
+        dialog.save(self, None, self._on_export_chosen)
+
+    def _on_export_chosen(self, dialog: Gtk.FileDialog, result) -> None:
+        try:
+            gfile = dialog.save_finish(result)
+        except GLib.Error:
+            return
+        if gfile:
+            self._do_export(gfile.get_path())
+
+    def _do_export(self, path: str) -> None:
+        content = _build_netscape_html(self._all_bookmarks)
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(content)
+        except OSError:
+            dlg = Adw.AlertDialog(heading="Export Failed",
+                                  body="Could not write to the selected file.")
+            dlg.add_response("ok", "OK")
+            dlg.present(self)
+            return
+        dlg = Adw.AlertDialog(
+            heading="Export Complete",
+            body=f"Saved {len(self._all_bookmarks)} bookmark"
+                 f"{'s' if len(self._all_bookmarks) != 1 else ''} to HTML.",
+        )
+        dlg.add_response("ok", "OK")
+        dlg.present(self)
 
     # ------------------------------------------------------------------
     # Actions

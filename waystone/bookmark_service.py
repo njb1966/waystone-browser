@@ -62,3 +62,8 @@ class BookmarkService:
             (new_name, old_name),
         )
         await self._db.conn.commit()
+
+    async def clear_all(self) -> None:
+        """Delete every bookmark."""
+        await self._db.conn.execute("DELETE FROM bookmarks")
+        await self._db.conn.commit()
