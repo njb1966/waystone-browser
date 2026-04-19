@@ -26,6 +26,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         on_theme_changed=None,
         on_size_changed=None,
         on_font_changed=None,
+        on_bar_toggled=None,
     ) -> None:
         super().__init__()
         self._settings = settings
@@ -33,6 +34,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._on_theme_changed = on_theme_changed
         self._on_size_changed = on_size_changed
         self._on_font_changed = on_font_changed
+        self._bar_toggled_cb = on_bar_toggled
         self._cert_rows: list[Adw.ActionRow] = []
         self._build()
         self.present(parent)
@@ -149,7 +151,10 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._settings.js_enabled = row.get_active()
 
     def _on_bar_toggled(self, row: Adw.SwitchRow, _param) -> None:
-        self._settings.show_bookmarks_bar = row.get_active()
+        value = row.get_active()
+        self._settings.show_bookmarks_bar = value
+        if self._bar_toggled_cb:
+            self._bar_toggled_cb(value)
 
     def _on_size_row_changed(self, row: Adw.ComboRow, _param) -> None:
         size = self._SIZE_VALUES[row.get_selected()]

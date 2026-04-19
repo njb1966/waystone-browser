@@ -467,6 +467,7 @@ class BrowserWindow(Adw.ApplicationWindow):
             on_theme_changed=self._on_text_theme_changed,
             on_size_changed=self._on_text_size_changed,
             on_font_changed=self._on_text_font_changed,
+            on_bar_toggled=self._bookmarks_bar.set_visible,
         )
 
     def _current_text_theme(self):
