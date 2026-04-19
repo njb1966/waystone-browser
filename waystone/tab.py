@@ -10,7 +10,7 @@ gi.require_version("WebKit", "6.0")
 from gi.repository import Gtk, WebKit, GLib, Gio
 
 from . import async_utils
-from .gemini_client import fetch as gemini_fetch, GeminiError
+from .gemini_client import open_request, GeminiError
 from .gopher_client import (
     fetch as gopher_fetch, parse_menu, parse_url as gopher_parse_url,
     GopherError, BINARY_TYPES,
@@ -275,9 +275,9 @@ class Tab:
         # Pre-load any stored client certificate for the initial host.
         cert_pem, key_pem = await self._identity_for_url(url)
 
-        for _ in range(8):  # extra headroom: redirects + 1 cert retry per hop
+        for _ in range(8):  # redirect budget (+ 1 cert retry per hop)
             try:
-                response = await gemini_fetch(url, cert_pem=cert_pem, key_pem=key_pem)
+                stream = await open_request(url, cert_pem=cert_pem, key_pem=key_pem)
             except GeminiError as e:
                 GLib.idle_add(self._viewer.render_error, str(e))
                 GLib.idle_add(self._gtk_load_done, url)
@@ -287,107 +287,138 @@ class Tab:
             host = parsed.hostname or ""
             port = parsed.port or 1965
 
-            tofu_status = await self._tofu_check(host, port, response.fingerprint)
+            tofu_status = await self._tofu_check(host, port, stream.header.fingerprint)
             if tofu_status != "trusted":
                 changed = tofu_status == "changed"
-                trusted = await self._tofu_prompt_cb(host, port, response.fingerprint, changed)
+                trusted = await self._tofu_prompt_cb(
+                    host, port, stream.header.fingerprint, changed
+                )
                 if not trusted:
+                    await stream.aclose()
                     GLib.idle_add(
                         self._viewer.render_error,
                         f"Certificate for {host}:{port} was not trusted.",
                     )
                     GLib.idle_add(self._gtk_load_done, url)
                     return
-                await self._tofu.trust(host, port, response.fingerprint)
+                await self._tofu.trust(host, port, stream.header.fingerprint)
 
-            cat = response.status // 10
+            status = stream.header.status
+            meta   = stream.header.meta
+            cat    = status // 10
 
-            # 3x — redirect
+            # 3x — redirect: close stream, loop with new URL
             if cat == 3:
-                url = urljoin(url, response.meta)
+                await stream.aclose()
+                url = urljoin(url, meta)
                 cert_pem, key_pem = await self._identity_for_url(url)
                 continue
 
-            # 6x — client certificate required / error
+            # 6x — client certificate required / rejected
             if cat == 6:
-                if response.status == 60:
+                await stream.aclose()
+                if status == 60:
                     if not self._identity_prompt_cb:
                         GLib.idle_add(
                             self._viewer.render_error,
-                            f"This capsule requires a client certificate.\n\n"
-                            f"Manage identities via Menu → Identities.",
+                            "This capsule requires a client certificate.\n\n"
+                            "Manage identities via Menu → Identities.",
                         )
                         GLib.idle_add(self._gtk_load_done, url)
                         return
-                    result = await self._identity_prompt_cb(host, port, response.meta or "")
+                    result = await self._identity_prompt_cb(host, port, meta or "")
                     if result is None:
-                        # User cancelled
                         GLib.idle_add(self._gtk_load_done, url)
                         return
                     cert_pem, key_pem = result
                     continue  # retry with the chosen certificate
-                elif response.status == 61:
+                elif status == 61:
                     GLib.idle_add(
                         self._viewer.render_error,
-                        f"Certificate not authorised by {host}.\n\n{response.meta}",
+                        f"Certificate not authorised by {host}.\n\n{meta}",
                     )
-                elif response.status == 62:
+                elif status == 62:
                     GLib.idle_add(
                         self._viewer.render_error,
-                        f"Certificate not valid for {host}.\n\n{response.meta}",
+                        f"Certificate not valid for {host}.\n\n{meta}",
                     )
                 else:
-                    GLib.idle_add(
-                        self._viewer.render_error,
-                        f"{response.status} — {response.meta}",
-                    )
+                    GLib.idle_add(self._viewer.render_error, f"{status} — {meta}")
                 GLib.idle_add(self._gtk_load_done, url)
                 return
 
             # 1x — input required
             if cat == 1:
+                await stream.aclose()
                 if not self._input_prompt_cb:
                     GLib.idle_add(
                         self._viewer.render_error,
-                        f"Server requests input: {response.meta}",
+                        f"Server requests input: {meta}",
                     )
                     GLib.idle_add(self._gtk_load_done, url)
                     return
-                sensitive = (response.status == 11)
-                user_input = await self._input_prompt_cb(
-                    response.meta or "Enter input:", sensitive
-                )
+                sensitive = (status == 11)
+                user_input = await self._input_prompt_cb(meta or "Enter input:", sensitive)
                 if user_input is None:
-                    # User cancelled — leave the viewer as-is
                     GLib.idle_add(self._gtk_load_done, url)
                     return
                 parsed_url = urlparse(url)
-                url = urlunparse(parsed_url._replace(
-                    query=quote(user_input, safe="")
-                ))
+                url = urlunparse(parsed_url._replace(query=quote(user_input, safe="")))
                 continue
 
             if cat != 2:
-                GLib.idle_add(
-                    self._viewer.render_error,
-                    f"{response.status} — {response.meta}",
-                )
+                await stream.aclose()
+                GLib.idle_add(self._viewer.render_error, f"{status} — {meta}")
                 GLib.idle_add(self._gtk_load_done, url)
                 return
 
-            # 2x — success: decode and render
-            mime, charset = self._parse_mime(response.meta)
+            # 2x — success: stream or buffer the body
+            mime, charset = self._parse_mime(meta)
+
             if mime in ("text/gemini", ""):
-                text = response.body.decode(charset, errors="replace")
-                title = self._extract_gemtext_title(text)
-                if title:
-                    self._page_title = title
-                GLib.idle_add(lambda t=text, u=url: self._viewer.render_gemtext(t, u))
+                # Progressive rendering: push lines to the viewer as chunks arrive.
+                GLib.idle_add(self._viewer.begin_gemtext_stream, url)
+                incomplete = ""
+                page_title = ""
+                try:
+                    async for chunk in stream.chunks():
+                        incomplete += chunk.decode(charset, errors="replace")
+                        last_nl = incomplete.rfind("\n")
+                        if last_nl == -1:
+                            continue
+                        lines = incomplete[:last_nl].split("\n")
+                        incomplete = incomplete[last_nl + 1:]
+                        if not page_title:
+                            for raw in lines:
+                                t = self._extract_gemtext_title(raw)
+                                if t:
+                                    page_title = t
+                                    break
+                        GLib.idle_add(self._viewer.feed_gemtext_lines, lines)
+                except GeminiError as e:
+                    await stream.aclose()
+                    GLib.idle_add(self._viewer.render_error, str(e))
+                    GLib.idle_add(self._gtk_load_done, url)
+                    return
+                finally:
+                    await stream.aclose()
+                # flush any remainder that had no trailing newline
+                if incomplete:
+                    if not page_title:
+                        page_title = self._extract_gemtext_title(incomplete)
+                    GLib.idle_add(self._viewer.feed_gemtext_lines, [incomplete])
+                GLib.idle_add(self._viewer.end_gemtext_stream)
+                if page_title:
+                    self._page_title = page_title
+
             elif mime.startswith("text/"):
-                text = response.body.decode(charset, errors="replace")
-                GLib.idle_add(lambda t=text: self._viewer.render_plain(t))
+                body = await stream.read_all()
+                text = body.decode(charset, errors="replace")
+                GLib.idle_add(self._viewer.render_plain, text)
+
             else:
-                # Non-text content — prompt for a save location and download.
+                # Non-text: buffer fully, then prompt for save location.
+                body = await stream.read_all()
                 parsed_path = urlparse(url).path
                 filename = parsed_path.rstrip("/").rsplit("/", 1)[-1] or "download"
                 if self._save_as_cb:
@@ -397,12 +428,9 @@ class Tab:
                             loop = async_utils.get_loop()
                             await loop.run_in_executor(
                                 None,
-                                lambda p=save_path, d=response.body: open(p, "wb").write(d),
+                                lambda p=save_path, d=body: open(p, "wb").write(d),
                             )
-                            GLib.idle_add(
-                                self._viewer.render_info,
-                                f"Saved to: {save_path}",
-                            )
+                            GLib.idle_add(self._viewer.render_info, f"Saved to: {save_path}")
                         except OSError as exc:
                             GLib.idle_add(self._viewer.render_error, f"Save failed: {exc}")
                 else:
@@ -416,7 +444,6 @@ class Tab:
             self.current_url = url
             if push:
                 self._push_nav(url)
-
             GLib.idle_add(self._gtk_load_done, url)
             return
 

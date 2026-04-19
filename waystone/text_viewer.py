@@ -211,6 +211,54 @@ class TextViewer(Gtk.ScrolledWindow):
 
         self._scroll_top()
 
+    # ------------------------------------------------------------------
+    # Streaming gemtext API (progressive rendering)
+    # ------------------------------------------------------------------
+
+    def begin_gemtext_stream(self, base_url: str = "") -> None:
+        """Clear the buffer and prepare for incremental gemtext rendering."""
+        self._clear()
+        self._stream_base_url = base_url
+        self._stream_in_pre = False
+        self._scroll_top()
+
+    def feed_gemtext_lines(self, raw_lines: list[str]) -> None:
+        """
+        Render a batch of raw gemtext lines into the buffer.
+        Maintains the preformat-toggle state across calls so chunked
+        delivery works correctly.  Must be called on the GTK thread.
+        """
+        end = self._buf.get_end_iter()
+        for raw in raw_lines:
+            if raw.startswith("```"):
+                self._stream_in_pre = not self._stream_in_pre
+                continue
+            if self._stream_in_pre:
+                self._insert(end, raw + "\n", "pre")
+                continue
+            if raw.startswith("=>"):
+                rest = raw[2:].strip()
+                parts = rest.split(None, 1)
+                orig = parts[0] if parts else ""
+                label = parts[1].strip() if len(parts) > 1 else orig
+                url = self._resolve_url(orig, self._stream_base_url)
+                self._insert_link(end, label + "\n", url, self._link_type(orig))
+            elif raw.startswith("###"):
+                self._insert(end, raw[3:].strip() + "\n", "h3")
+            elif raw.startswith("##"):
+                self._insert(end, raw[2:].strip() + "\n", "h2")
+            elif raw.startswith("#"):
+                self._insert(end, raw[1:].strip() + "\n", "h1")
+            elif raw.startswith("* "):
+                self._insert(end, "• " + raw[2:].strip() + "\n", "list")
+            elif raw.startswith(">"):
+                self._insert(end, raw[1:].strip() + "\n", "quote")
+            else:
+                self._insert(end, raw + "\n", "text")
+
+    def end_gemtext_stream(self) -> None:
+        """Called when the stream is fully consumed. Hook for future use."""
+
     def apply_theme(self, theme: TextTheme) -> None:
         """Apply a colour theme to the viewer.  Safe to call at any time."""
         # Background, text colour, font size, and font family via per-widget CSS.
