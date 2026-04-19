@@ -91,8 +91,26 @@ cd waystone-browser
 
 ## Installing (system-wide)
 
+Because Waystone depends on `python3-gi` (PyGObject), which is a system package and cannot
+be installed via pip, you must give pipx access to system site-packages:
+
 ```bash
-pip install --user .
+sudo apt-get install \
+    python3-gi python3-gi-cairo \
+    gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-webkit-6.0
+
+pipx install . --system-site-packages
+```
+
+If pipx says the package is already installed, add `--force` to recreate the venv:
+
+```bash
+pipx install . --system-site-packages --force
+```
+
+Then run:
+
+```bash
 waystone
 ```
 
