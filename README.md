@@ -11,29 +11,48 @@ Built with Python, GTK 4, Libadwaita, and WebKitGTK.
 | Protocol | Rendering | Notes |
 |----------|-----------|-------|
 | `http://` / `https://` | WebKitGTK | Full web engine; JS on by default |
-| `gemini://` | Native text renderer | Gemtext, redirects, input prompts, TOFU |
+| `gemini://` | Native text renderer | Gemtext, redirects, input prompts, TOFU, client certificates |
 | `gopher://` | Native text renderer | Menus, text, search (type 7), binary download |
 
 ---
 
 ## Features
 
-- **Tabbed browsing** — open/close/duplicate tabs; Ctrl+Tab to cycle; middle-click to close
+### Browsing
+- **Tabbed browsing** — open/close/duplicate tabs; Ctrl+Tab to cycle
 - **Session restore** — reopens your last tabs on next launch
-- **Bookmarks** — add with Ctrl+D; organised into folders; bookmarks bar for quick access
-- **History** — auto-recorded per navigation; searchable
-- **Find in page** — Ctrl+F with live match highlighting; F3 / Shift+F3 to step through results
-- **Gemini TOFU** — certificate trust-on-first-use with change detection
-- **Gemini input prompts** — handles status 10/11 (sensitive) requests
-- **Gopher search** — type-7 search dialogs
-- **Loading indicators** — spinner overlay for Gemini/Gopher tabs
-- **Tab titles** — derived from page headings (Gemini/Gopher) or the document title (web)
-- **Web favicons** — site favicons appear in the tab strip for web tabs
-- **Right-click context menu** — "Open Link in New Tab" for web tabs
-- **Dark mode** — System Default / Light / Dark via Settings
-- **Zoom** — Ctrl+= / Ctrl+- / Ctrl+0 (web tabs)
+- **New-tab page** — quick links to Gemcities, Geminispace, and Floodgap
+- **Find in page** — Ctrl+F with live match highlighting; F3 / Shift+F3 to step through
+- **Per-tab zoom** — Ctrl+= / Ctrl+- / Ctrl+0 (web tabs)
 - **Print** — Ctrl+P opens the native print dialog (web tabs)
-- **Open in new tab** — `target="_blank"` and middle-click links open in a new tab
+- **Open in new tab** — `target="_blank"` and gemini:// / gopher:// links from web pages
+
+### Bookmarks & History
+- **Bookmarks** — add with Ctrl+D; organised into folders; bookmarks bar for quick access
+- **Bookmarks bar** — toggle with Ctrl+Shift+B; shows items in the "Bookmarks Bar" folder
+- **History** — auto-recorded per navigation; full-text search; clear all
+
+### Gemini
+- **TOFU certificate trust** — trust-on-first-use with change detection and cert management
+- **Input prompts** — handles status 10 (plain) and 11 (sensitive/password) requests
+- **Client certificate identities** — create, import, and export identities as `.p12` files;
+  identities are automatically sent to capsules that require them (status 60)
+- **Binary downloads** — non-text Gemini responses prompt a Save As… dialog
+- **Redirect handling** — follows up to 8 redirects automatically
+- **Error display** — 6x cert errors (61/62) shown with clear messages
+
+### Gemini/Gopher appearance
+- **7 built-in colour themes** — System, Solarized Light, Solarized Dark, Nord, Dracula, Paper, Gruvbox Dark
+- **Text size** — Small (12 pt) / Normal (14 pt) / Large (16 pt) / X-Large (19 pt)
+- **Body font** — System Default, Noto Sans, Noto Serif, Cantarell, DejaVu Sans, DejaVu Serif
+- **Noto Color Emoji** — emoji fallback in all themes
+- **Link type icons** — ⇒ local capsule links, ● gemini/web/gopher links; colour-coded by protocol
+- **Loading spinner** — visual indicator during Gemini/Gopher page loads
+
+### Web (HTTP/HTTPS)
+- **Full WebKitGTK engine** — JavaScript, cookies, modern CSS/HTML
+- **Web favicons** — site icons appear in the tab strip
+- **Context menu** — "Open Link in New Tab" for web tabs
 
 ---
 
@@ -49,15 +68,19 @@ sudo apt-get install \
     gir1.2-gtk-4.0 \
     gir1.2-adw-1 \
     gir1.2-webkit-6.0 \
-    python3-aiosqlite
+    python3-aiosqlite \
+    python3-cryptography
 ```
+
+> **Note:** System packages are required and cannot be installed via pip alone.
+> The recommended install paths are `./run.sh` for development or Flatpak for end users.
 
 ---
 
 ## Running (development)
 
 ```bash
-git clone https://github.com/njb166/waystone-browser
+git clone https://github.com/njb1966/waystone-browser
 cd waystone-browser
 ./run.sh
 ```
@@ -148,8 +171,7 @@ flatpak-builder --user --install --force-clean \
 
 ## Bookmarks bar
 
-The bookmarks bar sits below the address bar and shows bookmarks that have been
-explicitly moved into the **"Bookmarks Bar"** folder.
+The bookmarks bar sits below the address bar and shows bookmarks in the **"Bookmarks Bar"** folder.
 
 1. Star a page (Ctrl+D) to save it as a regular bookmark.
 2. Open **Bookmarks…** → click the folder icon on any row → pick **Bookmarks Bar**.
@@ -164,16 +186,46 @@ Right-click a folder in the sidebar to **Rename** or **Delete** it.
 
 Open via the menu (⋮) → **Settings…**
 
-**General**
+### General
 - **Homepage URL** — opened in every new tab
 - **Enable JavaScript** — applies to new web tabs
 - **Show Bookmarks Bar** — toggle the toolbar (also Ctrl+Shift+B)
 - **Color Scheme** — System Default / Light / Dark (applied immediately)
 
-**Gemini**
-- View and remove stored TOFU certificate fingerprints
+### Gemini
+- **Text Size** — Small / Normal / Large / X-Large
+- **Colour Theme** — 7 built-in themes for Gemini and Gopher pages
+- **Body Font** — override the font used in Gemini/Gopher text rendering
+- **Trusted Certificates** — view and remove stored TOFU fingerprints
 
-Settings are saved to `~/.config/waystone/settings.json`.
+---
+
+## Gemini Identities
+
+Open via the menu (⋮) → **Identities…**
+
+Waystone supports Gemini client certificate authentication used by capsules like
+[Station](gemini://station.martinrue.com) and Gemini-accessible BBS systems.
+
+### Creating an identity
+1. Menu → **Identities…** → **New Identity…**
+2. Enter a name (e.g. your username or handle).
+3. A self-signed certificate is generated and stored locally.
+
+### Importing from another browser
+1. Export your identity from Lagrange, Kristall, or another Gemini browser as a `.p12` file.
+2. Menu → **Identities…** → **Import .p12…**
+3. Select the file and enter the password if one was set.
+
+### Exporting to another browser
+1. Menu → **Identities…** → click the **Export** button on any identity.
+2. Optionally set a password to protect the file.
+3. Save the `.p12` file and import it into the target browser.
+
+### How it works
+When a capsule returns **60 CLIENT CERTIFICATE REQUIRED**, Waystone prompts you to select
+or create an identity. The choice is remembered — future visits to that capsule automatically
+send the correct certificate with no additional prompts.
 
 ---
 
@@ -181,7 +233,7 @@ Settings are saved to `~/.config/waystone/settings.json`.
 
 | Data | Location |
 |------|----------|
-| Bookmarks, history, TOFU certs | `~/.local/share/waystone/waystone.db` |
+| Bookmarks, history, TOFU certs, identities | `~/.local/share/waystone/waystone.db` |
 | Settings | `~/.config/waystone/settings.json` |
 
 ---
@@ -193,20 +245,24 @@ waystone/
   main.py              — BrowserWindow, WaystoneApp entry point
   tab.py               — Tab (renderer widget + nav state + zoom)
   text_viewer.py       — GtkTextView renderer for Gemini/Gopher
-  gemini_client.py     — Async Gemini protocol client (TLS + TOFU)
+  gemini_client.py     — Async Gemini protocol client (TLS + TOFU + client certs)
   gemtext.py           — Gemtext parser
   gopher_client.py     — Async Gopher protocol client (RFC 1436)
   navigation.py        — URL normalisation and scheme dispatch
   tofu_store.py        — TOFU certificate store
+  identity_service.py  — Client certificate identity management
   bookmark_service.py  — Bookmark CRUD with folder support
   history_service.py   — History append + search
+  themes.py            — Built-in colour themes (7 themes)
   bookmark_dialog.py   — Bookmarks manager (two-pane, folder sidebar)
   bookmarks_bar.py     — Bookmarks toolbar widget
   history_dialog.py    — History viewer
+  identity_dialog.py   — Identity manager (create, import, export)
   settings_dialog.py   — Settings (Adw.PreferencesDialog)
   settings_service.py  — Settings persistence (JSON)
   db.py                — aiosqlite database wrapper + migrations
   async_utils.py       — Background asyncio thread + GLib bridge
+  newtab.html          — New-tab start page
 data/
   com.waystone.browser.desktop  — Desktop entry
   com.waystone.browser.svg      — Application icon

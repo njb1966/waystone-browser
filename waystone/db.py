@@ -30,6 +30,21 @@ CREATE TABLE IF NOT EXISTS gemini_certs (
     last_seen_at  INTEGER NOT NULL DEFAULT (unixepoch()),
     PRIMARY KEY (host, port)
 );
+
+CREATE TABLE IF NOT EXISTS identities (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL UNIQUE,
+    cert_pem   TEXT    NOT NULL,
+    key_pem    TEXT    NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+CREATE TABLE IF NOT EXISTS identity_hosts (
+    host        TEXT    NOT NULL,
+    port        INTEGER NOT NULL DEFAULT 1965,
+    identity_id INTEGER NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+    PRIMARY KEY (host, port)
+);
 """
 
 
@@ -41,6 +56,7 @@ class Database:
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         self._conn = await aiosqlite.connect(DB_PATH)
         self._conn.row_factory = aiosqlite.Row
+        await self._conn.execute("PRAGMA foreign_keys = ON")
         await self._conn.executescript(_SCHEMA)
         await self._migrate()
         await self._conn.commit()

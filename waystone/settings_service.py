@@ -12,6 +12,7 @@ _DEFAULTS: dict = {
     "show_bookmarks_bar":  True,
     "color_scheme":        "default",   # "default" | "light" | "dark"
     "gemini_theme":        "system",    # key from themes.THEMES
+    "text_font":           "system",    # font family for text renderer, or "system"
     "text_size":           14,          # base font size in pt for text renderer
     "session_urls":        [],
 }
@@ -77,6 +78,15 @@ class SettingsService:
     @color_scheme.setter
     def color_scheme(self, value: str) -> None:
         self._data["color_scheme"] = value
+        self.save()
+
+    @property
+    def text_font(self) -> str:
+        return self._data.get("text_font", "system")
+
+    @text_font.setter
+    def text_font(self, value: str) -> None:
+        self._data["text_font"] = value
         self.save()
 
     @property

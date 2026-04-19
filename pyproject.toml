@@ -1,13 +1,16 @@
 [build-system]
 requires = ["setuptools>=68"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "waystone-browser"
 version = "0.1.0"
 description = "Multi-protocol GUI browser: HTTP/HTTPS, Gemini, Gopher"
 requires-python = ">=3.11"
-dependencies = ["aiosqlite>=0.19"]
+dependencies = [
+    "aiosqlite>=0.19",
+    "cryptography>=41",
+]
 
 [project.scripts]
 waystone = "waystone.main:main"

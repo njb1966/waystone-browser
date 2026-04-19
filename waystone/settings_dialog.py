@@ -15,6 +15,9 @@ class SettingsDialog(Adw.PreferencesDialog):
     _SIZE_LABELS = ["Small (12 pt)", "Normal (14 pt)", "Large (16 pt)", "X-Large (19 pt)"]
     _SIZE_VALUES = [12, 14, 16, 19]
 
+    _FONT_LABELS = ["System Default", "Noto Sans", "Noto Serif", "Cantarell", "DejaVu Sans", "DejaVu Serif"]
+    _FONT_VALUES = ["system",        "Noto Sans",  "Noto Serif",  "Cantarell",  "DejaVu Sans",  "DejaVu Serif"]
+
     def __init__(
         self,
         parent: Gtk.Widget,
@@ -22,12 +25,14 @@ class SettingsDialog(Adw.PreferencesDialog):
         tofu_store: TOFUStore,
         on_theme_changed=None,
         on_size_changed=None,
+        on_font_changed=None,
     ) -> None:
         super().__init__()
         self._settings = settings
         self._tofu = tofu_store
         self._on_theme_changed = on_theme_changed
         self._on_size_changed = on_size_changed
+        self._on_font_changed = on_font_changed
         self._cert_rows: list[Adw.ActionRow] = []
         self._build()
         self.present(parent)
@@ -112,6 +117,18 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._theme_row.connect("notify::selected", self._on_theme_row_changed)
         appearance_g.add(self._theme_row)
 
+        self._font_row = Adw.ComboRow(
+            title="Body Font",
+            subtitle="Font used for Gemini and Gopher page text",
+        )
+        self._font_row.set_model(Gtk.StringList.new(self._FONT_LABELS))
+        cur_font = self._settings.text_font
+        font_idx = self._FONT_VALUES.index(cur_font) \
+            if cur_font in self._FONT_VALUES else 0
+        self._font_row.set_selected(font_idx)
+        self._font_row.connect("notify::selected", self._on_font_row_changed)
+        appearance_g.add(self._font_row)
+
         self._cert_group = Adw.PreferencesGroup(
             title="Trusted Certificates",
             description="TOFU fingerprints stored for Gemini hosts. "
@@ -145,6 +162,12 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._settings.gemini_theme = theme_id
         if self._on_theme_changed:
             self._on_theme_changed(theme_id)
+
+    def _on_font_row_changed(self, row: Adw.ComboRow, _param) -> None:
+        font = self._FONT_VALUES[row.get_selected()]
+        self._settings.text_font = font
+        if self._on_font_changed:
+            self._on_font_changed(font)
 
     def _on_scheme_changed(self, row: Adw.ComboRow, _param) -> None:
         keys   = ["default", "light", "dark"]

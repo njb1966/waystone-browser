@@ -2,8 +2,11 @@
 
 import asyncio
 import hashlib
+import os
 import ssl
+import tempfile
 from dataclasses import dataclass
+from typing import Optional
 from urllib.parse import urlparse
 
 
@@ -19,10 +22,16 @@ class GeminiError(Exception):
     pass
 
 
-async def fetch(url: str, timeout: float = 15.0) -> GeminiResponse:
+async def fetch(
+    url: str,
+    timeout: float = 15.0,
+    cert_pem: Optional[bytes] = None,
+    key_pem: Optional[bytes] = None,
+) -> GeminiResponse:
     """
     Perform a single Gemini request and return the response.
     Does NOT follow redirects — caller handles that.
+    Pass cert_pem + key_pem (PEM bytes) to send a client certificate.
     Raises GeminiError on connection/protocol failure.
     """
     parsed = urlparse(url)
@@ -32,6 +41,23 @@ async def fetch(url: str, timeout: float = 15.0) -> GeminiResponse:
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
+
+    if cert_pem and key_pem:
+        # ssl module requires file paths; write temp files and delete immediately
+        # after load_cert_chain (certs are copied into memory by OpenSSL).
+        cf = tempfile.NamedTemporaryFile(delete=False, suffix=".pem")
+        cf.write(cert_pem)
+        cf.close()
+        kf = tempfile.NamedTemporaryFile(delete=False, suffix=".pem")
+        kf.write(key_pem)
+        kf.close()
+        try:
+            ctx.load_cert_chain(certfile=cf.name, keyfile=kf.name)
+        except ssl.SSLError as e:
+            raise GeminiError(f"Invalid client certificate: {e}") from e
+        finally:
+            os.unlink(cf.name)
+            os.unlink(kf.name)
 
     try:
         reader, writer = await asyncio.wait_for(

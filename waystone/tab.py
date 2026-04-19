@@ -16,6 +16,7 @@ from .gopher_client import (
     GopherError, BINARY_TYPES,
 )
 from .tofu_store import TOFUStore
+from .identity_service import IdentityService
 from .text_viewer import TextViewer
 from .themes import TextTheme, THEMES, DEFAULT_THEME_ID
 
@@ -57,6 +58,8 @@ class Tab:
         js_enabled: bool = True,
         tofu_store: Optional[TOFUStore] = None,
         tofu_prompt_cb: Optional[Callable] = None,
+        identity_service: Optional[IdentityService] = None,
+        identity_prompt_cb: Optional[Callable] = None,
         input_prompt_cb: Optional[Callable] = None,
         save_as_cb: Optional[Callable] = None,
         open_url_cb: Optional[Callable] = None,
@@ -76,6 +79,8 @@ class Tab:
         self._page_title: str = ""
         self._tofu = tofu_store
         self._tofu_prompt_cb = tofu_prompt_cb
+        self._identity_service = identity_service
+        self._identity_prompt_cb = identity_prompt_cb
         self._input_prompt_cb = input_prompt_cb
         self._save_as_cb = save_as_cb
         self._open_url_cb = open_url_cb
@@ -266,9 +271,13 @@ class Tab:
         GLib.idle_add(self._gtk_load_started)
 
         url = start_url
-        for _ in range(6):
+
+        # Pre-load any stored client certificate for the initial host.
+        cert_pem, key_pem = await self._identity_for_url(url)
+
+        for _ in range(8):  # extra headroom: redirects + 1 cert retry per hop
             try:
-                response = await gemini_fetch(url)
+                response = await gemini_fetch(url, cert_pem=cert_pem, key_pem=key_pem)
             except GeminiError as e:
                 GLib.idle_add(self._viewer.render_error, str(e))
                 GLib.idle_add(self._gtk_load_done, url)
@@ -293,10 +302,49 @@ class Tab:
 
             cat = response.status // 10
 
+            # 3x — redirect
             if cat == 3:
                 url = urljoin(url, response.meta)
+                cert_pem, key_pem = await self._identity_for_url(url)
                 continue
 
+            # 6x — client certificate required / error
+            if cat == 6:
+                if response.status == 60:
+                    if not self._identity_prompt_cb:
+                        GLib.idle_add(
+                            self._viewer.render_error,
+                            f"This capsule requires a client certificate.\n\n"
+                            f"Manage identities via Menu → Identities.",
+                        )
+                        GLib.idle_add(self._gtk_load_done, url)
+                        return
+                    result = await self._identity_prompt_cb(host, port, response.meta or "")
+                    if result is None:
+                        # User cancelled
+                        GLib.idle_add(self._gtk_load_done, url)
+                        return
+                    cert_pem, key_pem = result
+                    continue  # retry with the chosen certificate
+                elif response.status == 61:
+                    GLib.idle_add(
+                        self._viewer.render_error,
+                        f"Certificate not authorised by {host}.\n\n{response.meta}",
+                    )
+                elif response.status == 62:
+                    GLib.idle_add(
+                        self._viewer.render_error,
+                        f"Certificate not valid for {host}.\n\n{response.meta}",
+                    )
+                else:
+                    GLib.idle_add(
+                        self._viewer.render_error,
+                        f"{response.status} — {response.meta}",
+                    )
+                GLib.idle_add(self._gtk_load_done, url)
+                return
+
+            # 1x — input required
             if cat == 1:
                 if not self._input_prompt_cb:
                     GLib.idle_add(
@@ -313,7 +361,6 @@ class Tab:
                     # User cancelled — leave the viewer as-is
                     GLib.idle_add(self._gtk_load_done, url)
                     return
-                # Append the query to the URL and retry in the same loop
                 parsed_url = urlparse(url)
                 url = urlunparse(parsed_url._replace(
                     query=quote(user_input, safe="")
@@ -328,7 +375,7 @@ class Tab:
                 GLib.idle_add(self._gtk_load_done, url)
                 return
 
-            # Success — decode and render
+            # 2x — success: decode and render
             mime, charset = self._parse_mime(response.meta)
             if mime in ("text/gemini", ""):
                 text = response.body.decode(charset, errors="replace")
@@ -375,6 +422,20 @@ class Tab:
 
         GLib.idle_add(self._viewer.render_error, "Too many redirects.")
         GLib.idle_add(self._gtk_load_done, start_url)
+
+    async def _identity_for_url(
+        self, url: str
+    ) -> tuple[Optional[bytes], Optional[bytes]]:
+        """Return (cert_pem, key_pem) bytes for the host in *url*, or (None, None)."""
+        if not self._identity_service:
+            return None, None
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+        port = parsed.port or 1965
+        identity = await self._identity_service.get_for_host(host, port)
+        if identity:
+            return identity["cert_pem"].encode(), identity["key_pem"].encode()
+        return None, None
 
     async def _tofu_check(self, host: str, port: int, fingerprint: str) -> str:
         if self._tofu is None:

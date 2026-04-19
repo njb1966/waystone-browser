@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 from typing import Optional
@@ -25,6 +26,8 @@ from .tofu_store import TOFUStore
 from .bookmark_dialog import BookmarkDialog
 from .bookmarks_bar import BookmarksBar
 from .history_dialog import HistoryDialog
+from .identity_dialog import IdentityDialog
+from .identity_service import IdentityService
 from .settings_dialog import SettingsDialog
 from .settings_service import SettingsService
 from .themes import THEMES, DEFAULT_THEME_ID
@@ -36,6 +39,7 @@ class BrowserWindow(Adw.ApplicationWindow):
         bookmark_service: BookmarkService,
         history_service: HistoryService,
         tofu_store: TOFUStore,
+        identity_service: IdentityService,
         settings: SettingsService,
         **kwargs,
     ):
@@ -48,6 +52,7 @@ class BrowserWindow(Adw.ApplicationWindow):
         self._bookmarks = bookmark_service
         self._history = history_service
         self._tofu = tofu_store
+        self._identities = identity_service
         self._settings = settings
         self._tabs: dict[object, Tab] = {}
 
@@ -129,6 +134,7 @@ class BrowserWindow(Adw.ApplicationWindow):
         menu = Gio.Menu()
         menu.append("Bookmarks…",     "win.show-bookmarks")
         menu.append("History…",       "win.show-history")
+        menu.append("Identities…",    "win.show-identities")
         menu.append("Settings…",      "win.show-settings")
         menu.append("About Waystone", "win.show-about")
         return menu
@@ -138,6 +144,7 @@ class BrowserWindow(Adw.ApplicationWindow):
             # Dialogs / UI toggles
             ("show-bookmarks",       lambda *_: self._show_bookmarks()),
             ("show-history",         lambda *_: self._show_history()),
+            ("show-identities",      lambda *_: self._show_identities()),
             ("show-settings",        lambda *_: self._show_settings()),
             ("toggle-bookmarks-bar", lambda *_: self._toggle_bookmarks_bar()),
             ("toggle-bookmark",      lambda *_: self._on_bookmark_clicked(None)),
@@ -217,6 +224,8 @@ class BrowserWindow(Adw.ApplicationWindow):
             js_enabled=self._settings.js_enabled,
             tofu_store=self._tofu,
             tofu_prompt_cb=self._prompt_tofu,
+            identity_service=self._identities,
+            identity_prompt_cb=self._prompt_identity,
             input_prompt_cb=self._prompt_input,
             save_as_cb=self._save_as,
             open_url_cb=self._open_new_tab,
@@ -346,6 +355,110 @@ class BrowserWindow(Adw.ApplicationWindow):
             open_url_cb=self._open_url_from_dialog,
         ).present()
 
+    def _show_identities(self):
+        IdentityDialog(parent=self, service=self._identities)
+
+    async def _prompt_identity(
+        self, host: str, port: int, meta: str
+    ) -> "Optional[tuple[bytes, bytes]]":
+        """
+        Called (on the async thread) when a Gemini server returns status 60.
+        Fetches the identity list, shows a GTK dialog on the main thread, and
+        returns (cert_pem_bytes, key_pem_bytes) or None if the user cancels.
+        """
+        identities = await self._identities.list_all()
+        loop = async_utils.get_loop()
+        future: "asyncio.Future" = loop.create_future()
+
+        def show():
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            box.set_margin_top(8)
+
+            dropdown = None
+
+            if identities:
+                lbl = Gtk.Label(label="Choose an existing identity:")
+                lbl.set_xalign(0.0)
+                box.append(lbl)
+
+                string_list = Gtk.StringList.new([i["name"] for i in identities])
+                dd = Gtk.DropDown(model=string_list)
+                box.append(dd)
+                dropdown = dd
+
+                sep = Gtk.Separator()
+                sep.set_margin_top(4)
+                sep.set_margin_bottom(4)
+                box.append(sep)
+
+            new_lbl = Gtk.Label(label="Or create a new identity:")
+            new_lbl.set_xalign(0.0)
+            name_entry = Gtk.Entry()
+            name_entry.set_placeholder_text("Name (e.g. your username or handle)")
+            name_entry.set_activates_default(True)
+            box.append(new_lbl)
+            box.append(name_entry)
+
+            body = f"<b>{host}</b> requires a client certificate to verify your identity."
+            if meta:
+                body += f"\n\n{meta}"
+
+            dlg = Adw.AlertDialog(heading="Certificate Required", body=body)
+            dlg.set_extra_child(box)
+
+            if identities:
+                dlg.add_response("use", "Use Selected")
+                dlg.set_response_appearance("use", Adw.ResponseAppearance.SUGGESTED)
+
+            dlg.add_response("create", "Create & Use")
+            if not identities:
+                dlg.set_response_appearance("create", Adw.ResponseAppearance.SUGGESTED)
+            dlg.add_response("cancel", "Cancel")
+            dlg.set_close_response("cancel")
+
+            _dd = dropdown
+            _entry = name_entry
+
+            def on_response(_d, resp):
+                if resp == "cancel":
+                    if not future.done():
+                        loop.call_soon_threadsafe(future.set_result, None)
+                elif resp == "use" and _dd is not None:
+                    idx = _dd.get_selected()
+                    if idx < len(identities):
+                        iid = identities[idx]["id"]
+                        async_utils.run(_use_existing(iid))
+                    else:
+                        loop.call_soon_threadsafe(future.set_result, None)
+                elif resp == "create":
+                    name = _entry.get_text().strip() or host
+                    async_utils.run(_create_and_use(name))
+
+            dlg.connect("response", on_response)
+            dlg.present(self)
+
+        async def _use_existing(identity_id: int):
+            await self._identities.assign_host(host, port, identity_id)
+            identity = await self._identities.get(identity_id)
+            if identity and not future.done():
+                result = (identity["cert_pem"].encode(), identity["key_pem"].encode())
+                loop.call_soon_threadsafe(future.set_result, result)
+            elif not future.done():
+                loop.call_soon_threadsafe(future.set_result, None)
+
+        async def _create_and_use(name: str):
+            identity_id = await self._identities.create(name)
+            await self._identities.assign_host(host, port, identity_id)
+            identity = await self._identities.get(identity_id)
+            if identity and not future.done():
+                result = (identity["cert_pem"].encode(), identity["key_pem"].encode())
+                loop.call_soon_threadsafe(future.set_result, result)
+            elif not future.done():
+                loop.call_soon_threadsafe(future.set_result, None)
+
+        GLib.idle_add(show)
+        return await future
+
     def _show_settings(self):
         SettingsDialog(
             parent=self,
@@ -353,13 +466,16 @@ class BrowserWindow(Adw.ApplicationWindow):
             tofu_store=self._tofu,
             on_theme_changed=self._on_text_theme_changed,
             on_size_changed=self._on_text_size_changed,
+            on_font_changed=self._on_text_font_changed,
         )
 
     def _current_text_theme(self):
         from dataclasses import replace
         theme_id = self._settings.gemini_theme
         base = THEMES.get(theme_id, THEMES[DEFAULT_THEME_ID])
-        return replace(base, font_size=self._settings.text_size)
+        font = self._settings.text_font
+        body_font = None if font == "system" else font
+        return replace(base, font_size=self._settings.text_size, body_font=body_font)
 
     def _on_text_theme_changed(self, theme_id: str) -> None:
         theme = self._current_text_theme()
@@ -367,6 +483,11 @@ class BrowserWindow(Adw.ApplicationWindow):
             tab.apply_theme(theme)
 
     def _on_text_size_changed(self, _size: int) -> None:
+        theme = self._current_text_theme()
+        for tab in self._tabs.values():
+            tab.apply_theme(theme)
+
+    def _on_text_font_changed(self, _font: str) -> None:
         theme = self._current_text_theme()
         for tab in self._tabs.values():
             tab.apply_theme(theme)
@@ -780,9 +901,10 @@ class WaystoneApp(Adw.Application):
         bookmarks = BookmarkService(self._db)
         history = HistoryService(self._db)
         tofu = TOFUStore(self._db)
-        GLib.idle_add(self._create_window, app, bookmarks, history, tofu)
+        identities = IdentityService(self._db)
+        GLib.idle_add(self._create_window, app, bookmarks, history, tofu, identities)
 
-    def _create_window(self, app, bookmarks, history, tofu):
+    def _create_window(self, app, bookmarks, history, tofu, identities):
         # Register the bundled icon directory so themed icons resolve in dev mode.
         display = Gdk.Display.get_default()
         if display:
@@ -802,6 +924,7 @@ class WaystoneApp(Adw.Application):
             bookmark_service=bookmarks,
             history_service=history,
             tofu_store=tofu,
+            identity_service=identities,
             settings=self._settings,
             application=app,
         )

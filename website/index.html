@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Waystone Browser</title>
-  <meta name="description" content="Waystone Browser is a GUI browser for WWW, Gemini, and Gopher." />
+  <meta name="description" content="Waystone Browser — a GUI browser for WWW, Gemini, and Gopher with client certificate identity support." />
   <link rel="icon" href="waystone-icon.png" type="image/png" />
   <style>
     :root {
@@ -31,10 +31,7 @@
       min-height: 100vh;
     }
 
-    a {
-      color: inherit;
-      text-decoration: none;
-    }
+    a { color: inherit; text-decoration: none; }
 
     .wrap {
       max-width: 1100px;
@@ -65,9 +62,7 @@
       box-shadow: 0 0 24px rgba(109,199,255,0.3);
     }
 
-    .brand span {
-      font-size: 1.05rem;
-    }
+    .brand span { font-size: 1.05rem; }
 
     .hero {
       display: grid;
@@ -84,9 +79,7 @@
       backdrop-filter: blur(10px);
     }
 
-    .hero-copy {
-      padding: 42px;
-    }
+    .hero-copy { padding: 42px; }
 
     .eyebrow {
       display: inline-block;
@@ -138,9 +131,7 @@
       border: 1px solid var(--border);
     }
 
-    .btn:hover {
-      transform: translateY(-2px);
-    }
+    .btn:hover { transform: translateY(-2px); }
 
     .btn-primary {
       background: linear-gradient(180deg, var(--accent), #46aef3);
@@ -193,9 +184,7 @@
       margin-top: 28px;
     }
 
-    .screenshot-card {
-      overflow: hidden;
-    }
+    .screenshot-card { overflow: hidden; }
 
     .screenshot-card img {
       width: 100%;
@@ -251,9 +240,7 @@
       font-size: 0.97rem;
     }
 
-    .info-block p:last-child {
-      margin-bottom: 0;
-    }
+    .info-block p:last-child { margin-bottom: 0; }
 
     .info-block ul {
       margin: 0;
@@ -297,15 +284,42 @@
       font-size: 0.87rem;
     }
 
-    @media (max-width: 860px) {
-      .info {
-        padding: 28px;
-      }
+    .highlight-box {
+      margin-top: 28px;
+      padding: 28px 36px;
+      border-left: 3px solid var(--accent);
+      background: rgba(109,199,255,0.06);
+      border-radius: 0 18px 18px 0;
+    }
 
-      .info-grid {
-        grid-template-columns: 1fr;
-        gap: 24px;
-      }
+    .highlight-box h3 {
+      margin: 0 0 10px;
+      font-size: 1.1rem;
+      color: var(--accent2);
+    }
+
+    .highlight-box p {
+      margin: 0 0 8px;
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 0.97rem;
+    }
+
+    .highlight-box p:last-child { margin-bottom: 0; }
+
+    code {
+      font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+      font-size: 0.87em;
+      color: var(--accent2);
+      background: rgba(109,199,255,0.08);
+      padding: 2px 5px;
+      border-radius: 4px;
+    }
+
+    @media (max-width: 860px) {
+      .info { padding: 28px; }
+      .info-grid { grid-template-columns: 1fr; gap: 24px; }
+      .highlight-box { padding: 20px 24px; }
     }
 
     footer {
@@ -316,41 +330,17 @@
     }
 
     @media (max-width: 860px) {
-      .hero {
-        grid-template-columns: 1fr;
-      }
-
-      .screenshots {
-        grid-template-columns: 1fr;
-      }
-
-      .hero-copy {
-        padding: 28px;
-      }
-
-      header {
-        margin-bottom: 24px;
-      }
+      .hero { grid-template-columns: 1fr; }
+      .screenshots { grid-template-columns: 1fr; }
+      .hero-copy { padding: 28px; }
+      header { margin-bottom: 24px; }
     }
 
     @media (max-width: 520px) {
-      .wrap {
-        padding: 20px 14px 36px;
-      }
-
-      .hero-copy,
-      .hero-art,
-      .info {
-        padding: 22px;
-      }
-
-      .actions {
-        flex-direction: column;
-      }
-
-      .btn {
-        width: 100%;
-      }
+      .wrap { padding: 20px 14px 36px; }
+      .hero-copy, .hero-art, .info { padding: 22px; }
+      .actions { flex-direction: column; }
+      .btn { width: 100%; }
     }
   </style>
 </head>
@@ -369,9 +359,9 @@
           <div class="eyebrow">WWW · Gemini · Gopher</div>
           <h1>Find your path with <span class="accent">Waystone</span>.</h1>
           <p class="sub">
-            Waystone Browser is a graphical browser for exploring the modern web alongside
-            Gemini and Gopher in one place. For project details, screenshots, build
-            information, and source code, visit the GitHub repository.
+            Waystone Browser is a graphical browser for Linux that lets you explore the
+            modern web, Geminispace, and Gopherspace in one place — complete with
+            client certificate identity support so your Gemini account travels with you.
           </p>
 
           <div class="actions">
@@ -406,11 +396,27 @@
         </div>
       </section>
 
+      <!-- Identity callout -->
+      <div class="highlight-box">
+        <h3>🔑 Portable Gemini Identities</h3>
+        <p>
+          Waystone fully supports Gemini client certificate authentication — used by capsules
+          like <strong>Station</strong> and Gemini-accessible BBS systems to identify users.
+          Create a certificate inside Waystone or import one you already use in Lagrange,
+          Kristall, or another browser via standard <strong>.p12</strong> files.
+          Export your identity the same way to take it anywhere.
+        </p>
+        <p>
+          When a capsule requires a certificate, Waystone prompts you once to pick or create
+          an identity — then remembers it for every future visit automatically.
+        </p>
+      </div>
+
       <section class="info card">
         <h2>About Waystone Browser</h2>
         <p class="lead">
           Waystone is a multi-protocol graphical browser for Linux that lets you navigate
-          the modern web, Gemini-space, and Gopherspace from a single application.
+          the modern web, Geminispace, and Gopherspace from a single application.
           Built with Python, GTK&nbsp;4, Libadwaita, and WebKitGTK — it feels at home
           on any GNOME desktop.
         </p>
@@ -426,8 +432,8 @@
               </li>
               <li>
                 <span class="proto-label">Gemini</span> — Native gemtext renderer with
-                TOFU certificate trust, redirect handling, and input prompts
-                (status&nbsp;10&nbsp;/&nbsp;11).
+                TOFU certificate trust, redirect handling, input prompts, binary downloads,
+                and full client certificate identity support (status&nbsp;60/61/62).
               </li>
               <li>
                 <span class="proto-label">Gopher</span> — Menu and text rendering,
@@ -439,14 +445,29 @@
           <div class="info-block">
             <h3>Features</h3>
             <ul>
-              <li>Tabbed browsing — open, close, and cycle tabs (Ctrl+T / Ctrl+W / Ctrl+Tab)</li>
+              <li>Tabbed browsing — open, close, duplicate, and cycle tabs</li>
+              <li>Session restore — your tabs reopen on next launch</li>
               <li>Bookmarks with folder organisation and a Bookmarks Bar</li>
               <li>Searchable history, auto-recorded per navigation</li>
               <li>Find in page — Ctrl+F with live match highlighting</li>
               <li>Dark / Light / System colour scheme, applied immediately</li>
-              <li>Per-tab zoom for web tabs (Ctrl+= / Ctrl+− / Ctrl+0)</li>
-              <li>Open in new tab — <code>target="_blank"</code> and middle-click</li>
-              <li>Print support for web tabs (Ctrl+P)</li>
+              <li>7 built-in colour themes for Gemini / Gopher pages</li>
+              <li>Text size and body font controls for Gemini / Gopher</li>
+              <li>Protocol-differentiated link icons (⇒ local, ● remote)</li>
+              <li>Noto Color Emoji fallback in all themes</li>
+              <li>Per-tab zoom and print for web tabs</li>
+            </ul>
+          </div>
+
+          <div class="info-block">
+            <h3>Gemini Identities</h3>
+            <ul>
+              <li>Create named identities with self-signed RSA-2048 certificates</li>
+              <li>Import from any browser via standard <code>.p12</code> files</li>
+              <li>Export to <code>.p12</code> with optional password protection</li>
+              <li>Identities auto-sent to capsules that request them</li>
+              <li>Host-to-identity mapping stored locally — one prompt per capsule</li>
+              <li>Manage all identities via Menu → <strong>Identities…</strong></li>
             </ul>
           </div>
 
@@ -456,23 +477,28 @@
               <li>Alt+Left / Alt+Right — Back / Forward</li>
               <li>F5 / Ctrl+R — Reload &nbsp;|&nbsp; Ctrl+Shift+R — Hard reload</li>
               <li>Ctrl+L — Focus address bar</li>
+              <li>Ctrl+T — New tab &nbsp;|&nbsp; Ctrl+W — Close tab</li>
               <li>Ctrl+D — Bookmark / unbookmark current page</li>
               <li>Ctrl+B — Bookmarks manager &nbsp;|&nbsp; Ctrl+H — History</li>
               <li>Ctrl+Shift+B — Toggle Bookmarks Bar</li>
+              <li>Ctrl+F — Find in page</li>
             </ul>
           </div>
 
           <div class="info-block">
             <h3>Getting Started</h3>
             <p>Requires Debian / Ubuntu with the following system packages:</p>
-            <p><code>python3-gi &nbsp; gir1.2-gtk-4.0 &nbsp; gir1.2-adw-1<br>
-            gir1.2-webkit-6.0 &nbsp; python3-aiosqlite</code></p>
+            <p>
+              <code>python3-gi &nbsp; gir1.2-gtk-4.0 &nbsp; gir1.2-adw-1</code><br>
+              <code>gir1.2-webkit-6.0 &nbsp; python3-aiosqlite &nbsp; python3-cryptography</code>
+            </p>
             <p>
               Clone the repository and run <code>./run.sh</code>, or install system-wide
               with <code>pip install --user .</code>. A Flatpak manifest is also provided
               for sandboxed installation on any Linux desktop.
             </p>
-            <p>Full documentation, releases, and source code are on
+            <p>
+              Full documentation, releases, and source code are on
               <a href="https://github.com/njb1966/waystone-browser" target="_blank"
                  rel="noopener noreferrer" style="color:var(--accent2)">GitHub</a>.
             </p>
@@ -481,9 +507,10 @@
           <div class="info-block">
             <h3>Data &amp; Settings</h3>
             <ul>
-              <li>Bookmarks, history, and TOFU certs — <code>~/.local/share/waystone/waystone.db</code></li>
-              <li>Settings (homepage, JS, colour scheme) — <code>~/.config/waystone/settings.json</code></li>
+              <li>Bookmarks, history, TOFU certs, identities — <code>~/.local/share/waystone/waystone.db</code></li>
+              <li>Settings (homepage, JS, colour scheme, theme, font) — <code>~/.config/waystone/settings.json</code></li>
               <li>TOFU fingerprints viewable and removable in Settings → Gemini</li>
+              <li>Identities manageable via Menu → Identities…</li>
             </ul>
           </div>
 
@@ -496,6 +523,7 @@
               <span class="stack-pill">WebKitGTK 6</span>
               <span class="stack-pill">asyncio</span>
               <span class="stack-pill">aiosqlite</span>
+              <span class="stack-pill">cryptography</span>
               <span class="stack-pill">SQLite</span>
               <span class="stack-pill">MIT licence</span>
             </div>
@@ -506,7 +534,7 @@
     </main>
 
     <footer>
-      waystone.njb1966.com · A browser for the web, Gemini, and Gopher
+      waystone.njb1966.com &nbsp;·&nbsp; A browser for the web, Gemini, and Gopher
     </footer>
   </div>
 </body>
