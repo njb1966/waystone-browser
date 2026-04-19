@@ -126,6 +126,9 @@ install -Dm644 data/com.waystone.browser.svg \
 update-desktop-database ~/.local/share/applications/
 ```
 
+> **XFCE users:** the Applications Menu won't pick up new entries until the panel is restarted.
+> Run `xfce4-panel --restart` after the above commands, or log out and back in.
+
 ---
 
 ## Flatpak
