@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import os
+import socket
 import ssl
 import tempfile
 from dataclasses import dataclass
@@ -175,15 +176,43 @@ async def open_request(
 
     ctx = _make_cert_ctx(cert_pem, key_pem) if (cert_pem and key_pem) else _get_anon_ctx()
 
+    # Resolve host and prefer IPv4 — many Gemini servers advertise AAAA records
+    # but only have working IPv4 TLS stacks.
+    loop = asyncio.get_event_loop()
     try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port, ssl=ctx),
+        infos = await asyncio.wait_for(
+            loop.getaddrinfo(host, port, type=socket.SOCK_STREAM),
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        raise GeminiError(f"Connection to {host}:{port} timed out")
+        raise GeminiError(f"DNS lookup for {host} timed out")
     except OSError as e:
-        raise GeminiError(f"Could not connect to {host}:{port}: {e}")
+        raise GeminiError(f"Could not resolve {host}: {e}")
+
+    if not infos:
+        raise GeminiError(f"No addresses found for {host}")
+
+    # Sort: IPv4 (AF_INET) before IPv6 (AF_INET6)
+    infos.sort(key=lambda i: 0 if i[0] == socket.AF_INET else 1)
+
+    last_err: Exception = GeminiError(f"Could not connect to {host}:{port}")
+    reader = writer = None
+    for af, _socktype, _proto, _cname, sockaddr in infos:
+        ip = sockaddr[0]
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(ip, port, ssl=ctx, server_hostname=host),
+                timeout=timeout,
+            )
+            break
+        except (asyncio.TimeoutError, OSError) as e:
+            last_err = e
+            continue
+
+    if writer is None:
+        if isinstance(last_err, asyncio.TimeoutError):
+            raise GeminiError(f"Connection to {host}:{port} timed out")
+        raise GeminiError(f"Could not connect to {host}:{port}: {last_err}")
 
     ssl_obj = writer.get_extra_info("ssl_object")
     der = ssl_obj.getpeercert(binary_form=True)
