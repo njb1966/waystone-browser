@@ -26,15 +26,15 @@ modules:
         url: https://files.pythonhosted.org/packages/4a/9a/1765afe9f572e239c3469f2cb429f3ba7b31878c893b246b4b2994ffe2fe/cryptography-46.0.7-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
         sha256: 5ad9ef796328c5e3c4ceed237a183f5d41d21150f972455a9d926593a1dcb308
 
-  # aiosqlite — pure Python, not in the GNOME runtime
+  # aiosqlite — pure Python, not in the GNOME runtime; use wheel to avoid flit_core dep
   - name: python3-aiosqlite
     buildsystem: simple
     build-commands:
-      - pip3 install --prefix=/app --no-deps --no-build-isolation .
+      - pip3 install --prefix=/app --no-deps --no-build-isolation aiosqlite-0.22.1-py3-none-any.whl
     sources:
-      - type: archive
-        url: https://files.pythonhosted.org/packages/4e/8a/64761f4005f17809769d23e518d915db74e6310474e733e3593cfc854ef1/aiosqlite-0.22.1.tar.gz
-        sha256: 043e0bd78d32888c0a9ca90fc788b38796843360c855a7262a532813133a0650
+      - type: file
+        url: https://files.pythonhosted.org/packages/00/b7/e3bf5133d697a08128598c8d0abc5e16377b51465a33756de24fa7dee953/aiosqlite-0.22.1-py3-none-any.whl
+        sha256: 21c002eb13823fad740196c5a2e9d8e62f6243bd9e7e4a1f87fb5e44ecb4fceb
 
   # Waystone itself
   - name: waystone
