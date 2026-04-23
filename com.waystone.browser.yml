@@ -12,8 +12,8 @@ finish-args:
   - --device=dri
   # User home access for downloads and config
   - --filesystem=home
-  # WebKit sandbox helper
-  - --env=WEBKIT_FORCE_SANDBOX=0
+  # Allow user namespaces so WebKit's internal bwrap sandbox works inside Flatpak
+  - --allow=devel
 
 modules:
   # cryptography — binary extension, not in the GNOME runtime; use stable ABI wheel
