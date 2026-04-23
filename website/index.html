@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Waystone Browser</title>
-  <meta name="description" content="Waystone Browser — a GUI browser for WWW, Gemini, and Gopher with client certificate identity support." />
+  <meta name="description" content="Waystone Browser — a GUI browser for HTTP, Gemini, Gopher, Spartan, and Titan with client certificate identity support." />
   <link rel="icon" href="waystone-icon.png" type="image/png" />
   <style>
     :root {
@@ -179,7 +179,7 @@
 
     .screenshots {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 16px;
       margin-top: 28px;
     }
@@ -316,6 +316,10 @@
       border-radius: 4px;
     }
 
+    @media (max-width: 900px) {
+      .screenshots { grid-template-columns: repeat(2, 1fr); }
+    }
+
     @media (max-width: 860px) {
       .info { padding: 28px; }
       .info-grid { grid-template-columns: 1fr; gap: 24px; }
@@ -331,12 +335,12 @@
 
     @media (max-width: 860px) {
       .hero { grid-template-columns: 1fr; }
-      .screenshots { grid-template-columns: 1fr; }
       .hero-copy { padding: 28px; }
       header { margin-bottom: 24px; }
     }
 
     @media (max-width: 520px) {
+      .screenshots { grid-template-columns: 1fr; }
       .wrap { padding: 20px 14px 36px; }
       .hero-copy, .hero-art, .info { padding: 22px; }
       .actions { flex-direction: column; }
@@ -356,12 +360,12 @@
     <main>
       <section class="hero">
         <div class="hero-copy card">
-          <div class="eyebrow">WWW · Gemini · Gopher</div>
+          <div class="eyebrow">HTTP · Gemini · Gopher · Spartan · Titan</div>
           <h1>Find your path with <span class="accent">Waystone</span>.</h1>
           <p class="sub">
             Waystone Browser is a graphical browser for Linux that lets you explore the
-            modern web, Geminispace, and Gopherspace in one place — complete with
-            client certificate identity support so your Gemini account travels with you.
+            modern web, Geminispace, Gopherspace, and Spartanspace in one place —
+            with client certificate identity support so your Gemini account travels with you.
           </p>
 
           <div class="actions">
@@ -373,6 +377,8 @@
             <span class="pill">HTTP / HTTPS</span>
             <span class="pill">Gemini</span>
             <span class="pill">Gopher</span>
+            <span class="pill">Spartan</span>
+            <span class="pill">Titan</span>
           </div>
         </div>
 
@@ -394,11 +400,14 @@
           <img src="waystone-gopher.jpg" alt="Waystone browsing Gopher" loading="lazy" />
           <p class="screenshot-caption">Gopher</p>
         </div>
+        <div class="screenshot-card card">
+          <img src="waystone-spartan.jpg" alt="Waystone browsing a Spartan site" loading="lazy" />
+          <p class="screenshot-caption">Spartan</p>
+        </div>
       </section>
 
-      <!-- Identity callout -->
       <div class="highlight-box">
-        <h3>🔑 Portable Gemini Identities</h3>
+        <h3>Portable Gemini Identities</h3>
         <p>
           Waystone fully supports Gemini client certificate authentication used by capsules
           like <strong>Station</strong> and Gemini-accessible BBS systems to identify users.
@@ -416,9 +425,9 @@
         <h2>About Waystone Browser</h2>
         <p class="lead">
           Waystone is a multi-protocol graphical browser for Linux that lets you navigate
-          the modern web, Geminispace, and Gopherspace from a single application.
-          Built with Python, GTK&nbsp;4, Libadwaita, and WebKitGTK... it feels at home
-          on any GNOME desktop.
+          the modern web, Geminispace, Gopherspace, and Spartanspace from a single application.
+          Built with Python, GTK&nbsp;4, Libadwaita, and WebKitGTK — it feels at home
+          on any GNOME or GTK desktop. Available on Flathub (pending review) and from source.
         </p>
 
         <div class="info-grid">
@@ -431,13 +440,22 @@
                 WebKitGTK; JavaScript on by default with a global toggle in Settings.
               </li>
               <li>
-                <span class="proto-label">Gemini</span> — Native gemtext renderer with
+                <span class="proto-label">Gemini</span> — Native streaming gemtext renderer,
                 TOFU certificate trust, redirect handling, input prompts, binary downloads,
-                and full client certificate identity support (status&nbsp;60/61/62).
+                and full client certificate identity support (status 60/61/62).
               </li>
               <li>
                 <span class="proto-label">Gopher</span> — Menu and text rendering,
-                type-7 search dialogs, and binary file download with Save&nbsp;As.
+                type-7 search dialogs, and binary file download with Save As.
+              </li>
+              <li>
+                <span class="proto-label">Spartan</span> — Gemtext rendering, redirect
+                handling, and data-input links (the <code>=</code> line type) rendered
+                with a prompt dialog for text submission.
+              </li>
+              <li>
+                <span class="proto-label">Titan</span> — Upload text or files to Gemini
+                capsules via <code>titan://</code> links, with optional auth token support.
               </li>
             </ul>
           </div>
@@ -447,14 +465,17 @@
             <ul>
               <li>Tabbed browsing — open, close, duplicate, and cycle tabs</li>
               <li>Session restore — your tabs reopen on next launch</li>
-              <li>Bookmarks with folder organisation and a Bookmarks Bar</li>
+              <li>Streaming Gemini render — content appears as it arrives</li>
+              <li>Bookmarks with arbitrarily nested folders</li>
+              <li>Bookmarks Bar — pinned toolbar with folder dropdowns</li>
+              <li>Import / Export bookmarks as Netscape HTML or .gmi files</li>
               <li>Searchable history, auto-recorded per navigation</li>
               <li>Find in page — Ctrl+F with live match highlighting</li>
+              <li>Cross-protocol links — all five protocols interlink correctly</li>
+              <li>Open in new tab — middle-click or right-click any link</li>
               <li>Dark / Light / System colour scheme, applied immediately</li>
-              <li>7 built-in colour themes for Gemini / Gopher pages</li>
-              <li>Text size and body font controls for Gemini / Gopher</li>
-              <li>Protocol-differentiated link icons (⇒ local, ● remote)</li>
-              <li>Noto Color Emoji fallback in all themes</li>
+              <li>7 built-in colour themes for Gemini / Gopher / Spartan pages</li>
+              <li>Text size and body font controls</li>
               <li>Per-tab zoom and print for web tabs</li>
             </ul>
           </div>
@@ -478,7 +499,7 @@
               <li>F5 / Ctrl+R — Reload &nbsp;|&nbsp; Ctrl+Shift+R — Hard reload</li>
               <li>Ctrl+L — Focus address bar</li>
               <li>Ctrl+T — New tab &nbsp;|&nbsp; Ctrl+W — Close tab</li>
-              <li>Ctrl+D — Bookmark / unbookmark current page</li>
+              <li>Ctrl+D — Bookmark current page</li>
               <li>Ctrl+B — Bookmarks manager &nbsp;|&nbsp; Ctrl+H — History</li>
               <li>Ctrl+Shift+B — Toggle Bookmarks Bar</li>
               <li>Ctrl+F — Find in page</li>
@@ -487,18 +508,16 @@
 
           <div class="info-block">
             <h3>Getting Started</h3>
-            <p>Requires Debian / Ubuntu with the following system packages:</p>
+            <p>Flatpak (recommended — pending Flathub approval):</p>
+            <p><code>flatpak install flathub com.waystone.browser</code></p>
+            <p>From source on Debian / Ubuntu, install system packages:</p>
             <p>
               <code>python3-gi &nbsp; gir1.2-gtk-4.0 &nbsp; gir1.2-adw-1</code><br>
-              <code>gir1.2-webkit-6.0 &nbsp; python3-aiosqlite &nbsp; python3-cryptography</code>
+              <code>gir1.2-webkit-6.0 &nbsp; python3-cryptography</code>
             </p>
             <p>
-              Clone the repository and run <code>./run.sh</code>, or install system-wide
-              with <code>pip install --user .</code>. A Flatpak manifest is also provided
-              for sandboxed installation on any Linux desktop.
-            </p>
-            <p>
-              Full documentation, releases, and source code are on
+              Clone the repository and run <code>./run.sh</code>.
+              Full documentation and source on
               <a href="https://github.com/njb1966/waystone-browser" target="_blank"
                  rel="noopener noreferrer" style="color:var(--accent2)">GitHub</a>.
             </p>
@@ -534,7 +553,7 @@
     </main>
 
     <footer>
-      waystone.njb1966.com &nbsp;·&nbsp; A browser for the web, Gemini, and Gopher
+      waystone.njb1966.com &nbsp;·&nbsp; A browser for the web, Gemini, Gopher, Spartan, and Titan
     </footer>
   </div>
 </body>
