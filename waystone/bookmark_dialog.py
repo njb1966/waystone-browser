@@ -284,8 +284,6 @@ class BookmarkDialog(Adw.Window):
         for folder_name in self._folders:
             if folder_name == _BAR_FOLDER:
                 continue  # already pinned above
-            if folder_name.startswith(_BAR_FOLDER + "/"):
-                continue  # bar sub-folders live in the bar widget, not in the sidebar tree
             depth = folder_name.count("/")
             display = folder_name.rsplit("/", 1)[-1]
             row = self._make_sidebar_row(display, "folder-symbolic", folder_name, depth=depth)

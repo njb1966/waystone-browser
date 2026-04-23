@@ -120,6 +120,17 @@ class BookmarksBar(Gtk.Box):
         btn.set_has_frame(False)
         btn.set_tooltip_text(folder_name)
         btn.set_popover(self._build_folder_popover(full_path, bookmarks))
+
+        gesture = Gtk.GestureClick()
+        gesture.set_button(3)
+        gesture.connect(
+            "pressed",
+            lambda g, _n, _x, _y, fn=folder_name, fp=full_path, w=btn: (
+                self._show_folder_context(fn, fp, w, g)
+            ),
+        )
+        btn.add_controller(gesture)
+
         self.append(btn)
 
     def _build_folder_popover(self, full_path: str, bookmarks: list[dict]) -> Gtk.Popover:
@@ -173,6 +184,49 @@ class BookmarksBar(Gtk.Box):
                 add_bm_row(bm)
 
         return popover
+
+    # ------------------------------------------------------------------
+    # Folder right-click context (move out of bar)
+    # ------------------------------------------------------------------
+
+    def _show_folder_context(
+        self,
+        folder_name: str,
+        full_path: str,
+        btn: Gtk.MenuButton,
+        gesture: Gtk.GestureClick,
+    ) -> None:
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box.set_margin_top(4)
+        box.set_margin_bottom(4)
+        box.set_margin_start(4)
+        box.set_margin_end(4)
+
+        btn_out = Gtk.Button(label="Move out of Bar")
+        btn_out.add_css_class("flat")
+
+        box.append(btn_out)
+
+        popover = Gtk.Popover()
+        popover.set_child(box)
+        popover.set_parent(btn)
+        popover.set_has_arrow(True)
+
+        btn_out.connect(
+            "clicked",
+            lambda _: (
+                popover.popdown(),
+                async_utils.run(self._do_move_folder_out(full_path, folder_name)),
+            ),
+        )
+        popover.popup()
+
+    async def _do_move_folder_out(self, full_path: str, folder_name: str) -> None:
+        """Move Bookmarks Bar/<name> → <name> (top-level folder)."""
+        await self._service.move_folder(full_path, folder_name)
+        GLib.idle_add(self.refresh)
 
     # ------------------------------------------------------------------
     # Bookmark right-click context (edit / remove)
