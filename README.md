@@ -151,14 +151,19 @@ update-desktop-database ~/.local/share/applications/
 
 ## Flatpak
 
-A manifest is provided at `com.waystone.browser.yml`.
-Requires `flatpak-builder` and the GNOME Platform 47 runtime.
+Waystone has been submitted to Flathub (PR [#8465](https://github.com/flathub/flathub/pull/8465)).
+Once approved it will be installable with:
 
 ```bash
-flatpak install flathub org.gnome.Platform//47 org.gnome.Sdk//47
+flatpak install flathub com.waystone.browser
+```
 
-flatpak-builder --user --install --force-clean \
-    _build com.waystone.browser.yml
+To build locally from the manifest (`com.waystone.browser.yml`), requires `flatpak-builder`
+and the GNOME Platform 48 runtime:
+
+```bash
+flatpak install flathub org.gnome.Platform//48 org.gnome.Sdk//48
+flatpak-builder --user --install --force-clean build-dir com.waystone.browser.yml
 ```
 
 ---

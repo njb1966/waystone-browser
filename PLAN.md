@@ -354,7 +354,7 @@ Mitigation: Track enhancements in roadmap below.
 - **Address bar autocomplete** — suggest from history as you type
 - **Status bar** — show link target on hover; network status
 - **Encrypted identity keys** — optional master passphrase for the identity store
-- **Flatpak release** — publish to Flathub
+- **Flatpak release** — submitted to Flathub, pending review (PR #8465)
 
 ---
 
