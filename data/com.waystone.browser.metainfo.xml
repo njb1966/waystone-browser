@@ -56,8 +56,20 @@
 
   <screenshots>
     <screenshot type="default">
-      <caption>Waystone browsing a Gemini capsule</caption>
-      <image>https://raw.githubusercontent.com/njb1966/waystone-browser/main/data/screenshots/gemini.png</image>
+      <caption>Browsing a Gemini capsule</caption>
+      <image>https://raw.githubusercontent.com/njb1966/waystone-browser/main/data/screenshots/gemini.jpg</image>
+    </screenshot>
+    <screenshot>
+      <caption>HTTP/HTTPS web browsing via WebKitGTK</caption>
+      <image>https://raw.githubusercontent.com/njb1966/waystone-browser/main/data/screenshots/html.jpg</image>
+    </screenshot>
+    <screenshot>
+      <caption>Browsing a Gopher hole</caption>
+      <image>https://raw.githubusercontent.com/njb1966/waystone-browser/main/data/screenshots/gopher.jpg</image>
+    </screenshot>
+    <screenshot>
+      <caption>Browsing a Spartan site</caption>
+      <image>https://raw.githubusercontent.com/njb1966/waystone-browser/main/data/screenshots/spartan.jpg</image>
     </screenshot>
   </screenshots>
 </component>
