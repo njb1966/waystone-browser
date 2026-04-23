@@ -15,8 +15,9 @@ from . import async_utils
 from .bookmark_service import BookmarkService
 
 # Folder-selection sentinels
-_ALL     = "__all__"    # show every bookmark
-_UNFILED = "__none__"   # show only bookmarks with folder = NULL
+_ALL       = "__all__"          # show every bookmark
+_UNFILED   = "__none__"         # show only bookmarks with folder = NULL
+_BAR_FOLDER = "Bookmarks Bar"   # reserved folder — always pinned in sidebar and Move popover
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +51,11 @@ class _NetscapeParser(_html_parser.HTMLParser):
             # Push parent folder; if an H3 preceded this DL, activate it now.
             self._folder_stack.append(self._current_folder)
             if self._pending_folder is not None:
-                self._current_folder = self._pending_folder
+                # Build a path-encoded name so hierarchy is preserved ("Parent/Child").
+                if self._current_folder:
+                    self._current_folder = f"{self._current_folder}/{self._pending_folder}"
+                else:
+                    self._current_folder = self._pending_folder
                 self._pending_folder = None
 
     def handle_endtag(self, tag):
@@ -176,7 +181,7 @@ class BookmarkDialog(Adw.Window):
         header.pack_end(btn_export)
 
         btn_import = Gtk.Button(icon_name="document-open-symbolic")
-        btn_import.set_tooltip_text("Import bookmarks from HTML")
+        btn_import.set_tooltip_text("Import bookmarks (HTML or .gmi)")
         btn_import.connect("clicked", self._on_import_clicked)
         header.pack_end(btn_import)
 
@@ -241,11 +246,16 @@ class BookmarkDialog(Adw.Window):
 
     def _populate(self, bookmarks: list[dict]) -> None:
         self._all_bookmarks = bookmarks
-        seen: list[str] = []
+        seen: set[str] = set()
         for b in bookmarks:
             f = b.get("folder")
-            if f and f not in seen:
-                seen.append(f)
+            if not f:
+                continue
+            # Include every ancestor path so intermediate folders remain visible
+            # even when they have no bookmarks assigned directly.
+            parts = f.split("/")
+            for i in range(1, len(parts) + 1):
+                seen.add("/".join(parts[:i]))
         self._folders = sorted(seen)
         self._rebuild_sidebar()
         self._rebuild_bm_list()
@@ -263,13 +273,22 @@ class BookmarkDialog(Adw.Window):
 
         all_row    = self._make_sidebar_row("All Bookmarks", "bookmark-collection-symbolic", _ALL)
         unfiled_row = self._make_sidebar_row("Unfiled",       "folder-symbolic",              _UNFILED)
-        self._folder_rows[_ALL]     = all_row
-        self._folder_rows[_UNFILED] = unfiled_row
+        bar_row     = self._make_sidebar_row("Bookmarks Bar", "starred-symbolic",             _BAR_FOLDER)
+        self._folder_rows[_ALL]        = all_row
+        self._folder_rows[_UNFILED]    = unfiled_row
+        self._folder_rows[_BAR_FOLDER] = bar_row
         self._folder_list.append(all_row)
         self._folder_list.append(unfiled_row)
+        self._folder_list.append(bar_row)
 
         for folder_name in self._folders:
-            row = self._make_sidebar_row(folder_name, "folder-symbolic", folder_name)
+            if folder_name == _BAR_FOLDER:
+                continue  # already pinned above
+            if folder_name.startswith(_BAR_FOLDER + "/"):
+                continue  # bar sub-folders live in the bar widget, not in the sidebar tree
+            depth = folder_name.count("/")
+            display = folder_name.rsplit("/", 1)[-1]
+            row = self._make_sidebar_row(display, "folder-symbolic", folder_name, depth=depth)
             self._folder_rows[folder_name] = row
             self._folder_list.append(row)
 
@@ -277,12 +296,12 @@ class BookmarkDialog(Adw.Window):
                                        self._folder_rows[_ALL])
         self._folder_list.select_row(target)
 
-    def _make_sidebar_row(self, label: str, icon: str, folder_key: str) -> Gtk.ListBoxRow:
+    def _make_sidebar_row(self, label: str, icon: str, folder_key: str, depth: int = 0) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
         row._folder_key = folder_key  # type: ignore[attr-defined]
 
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        box.set_margin_start(8)
+        box.set_margin_start(8 + depth * 16)
         box.set_margin_end(8)
         box.set_margin_top(6)
         box.set_margin_bottom(6)
@@ -295,7 +314,7 @@ class BookmarkDialog(Adw.Window):
         box.append(lbl)
         row.set_child(box)
 
-        if folder_key not in (_ALL, _UNFILED):
+        if folder_key not in (_ALL, _UNFILED, _BAR_FOLDER):
             chk = Gtk.CheckButton()
             chk.set_valign(Gtk.Align.CENTER)
             chk.set_tooltip_text("Select for bulk delete")
@@ -326,10 +345,9 @@ class BookmarkDialog(Adw.Window):
         listbox = Gtk.ListBox()
         listbox.set_selection_mode(Gtk.SelectionMode.NONE)
 
-        rename_row = self._popover_text_row("Rename…")
-        delete_row = self._popover_text_row("Delete Folder")
-        listbox.append(rename_row)
-        listbox.append(delete_row)
+        listbox.append(self._popover_text_row("Rename…"))
+        listbox.append(self._popover_text_row("Move Under…"))
+        listbox.append(self._popover_text_row("Delete Folder"))
 
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         inner.set_margin_top(4)
@@ -345,8 +363,11 @@ class BookmarkDialog(Adw.Window):
 
         def on_activated(_lb, r, p=popover, fn=folder_name):
             p.popdown()
-            if r.get_index() == 0:
+            idx = r.get_index()
+            if idx == 0:
                 self._prompt_rename_folder(fn)
+            elif idx == 1:
+                self._prompt_move_folder_under(fn)
             else:
                 self._confirm_delete_folder(fn)
 
@@ -429,6 +450,55 @@ class BookmarkDialog(Adw.Window):
 
         dlg.connect("response", on_response)
         dlg.present(self)
+
+    def _prompt_move_folder_under(self, folder_name: str) -> None:
+        """Show a dialog to pick a new parent for folder_name."""
+        leaf = folder_name.rsplit("/", 1)[-1]
+
+        # Candidate parents: Bookmarks Bar + all folders that are not the folder
+        # itself and not already a descendant of it.
+        candidates = [_BAR_FOLDER] + [
+            f for f in self._folders
+            if f != folder_name and not f.startswith(folder_name + "/")
+            and f != _BAR_FOLDER
+        ]
+
+        string_list = Gtk.StringList.new(["(Top Level)"] + [c.replace("/", " › ") for c in candidates])
+        dropdown = Gtk.DropDown(model=string_list)
+        dropdown.set_margin_top(8)
+
+        dlg = Adw.AlertDialog(
+            heading="Move Folder Under…",
+            body=f'Choose a parent for "{leaf}":',
+        )
+        dlg.set_extra_child(dropdown)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("move", "Move")
+        dlg.set_default_response("move")
+        dlg.set_close_response("cancel")
+        dlg.set_response_appearance("move", Adw.ResponseAppearance.SUGGESTED)
+
+        def on_response(_d, resp, fn=folder_name, cands=candidates):
+            if resp != "move":
+                return
+            idx = dropdown.get_selected()
+            if idx == 0:
+                # Top Level — strip any existing parent prefix
+                new_path = fn.rsplit("/", 1)[-1]
+            else:
+                parent = cands[idx - 1]
+                new_path = parent + "/" + fn.rsplit("/", 1)[-1]
+            if new_path != fn:
+                async_utils.run(self._do_move_folder(fn, new_path))
+
+        dlg.connect("response", on_response)
+        dlg.present(self)
+
+    async def _do_move_folder(self, old_path: str, new_path: str) -> None:
+        await self._service.move_folder(old_path, new_path)
+        bookmarks = await self._service.list_all()
+        GLib.idle_add(self._populate, bookmarks)
+        self._notify_change()
 
     def _confirm_delete_folder(self, folder_name: str) -> None:
         dlg = Adw.AlertDialog(
@@ -521,15 +591,17 @@ class BookmarkDialog(Adw.Window):
 
     def _make_move_popover(self, url: str) -> Gtk.Popover:
         """Build the 'Move to folder' popover. Folders are snapshotted at creation."""
-        snapshot = list(self._folders)
+        # Exclude Bookmarks Bar from dynamic list — it's always pinned at index 1.
+        snapshot = [f for f in self._folders if f != _BAR_FOLDER]
 
         listbox = Gtk.ListBox()
         listbox.set_selection_mode(Gtk.SelectionMode.NONE)
         listbox.add_css_class("boxed-list")
 
         listbox.append(self._popover_text_row("Unfiled"))
+        listbox.append(self._popover_text_row("Bookmarks Bar"))
         for fname in snapshot:
-            listbox.append(self._popover_text_row(fname))
+            listbox.append(self._popover_text_row(fname.replace("/", " › ")))
         listbox.append(self._popover_text_row("New Folder…"))
 
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -547,8 +619,10 @@ class BookmarkDialog(Adw.Window):
             p.popdown()
             if idx == 0:
                 async_utils.run(self._do_move(u, None))
-            elif 1 <= idx <= len(folders):
-                async_utils.run(self._do_move(u, folders[idx - 1]))
+            elif idx == 1:
+                async_utils.run(self._do_move(u, _BAR_FOLDER))
+            elif 2 <= idx <= 1 + len(folders):
+                async_utils.run(self._do_move(u, folders[idx - 2]))
             else:
                 self._prompt_new_folder(u)
 
@@ -643,16 +717,30 @@ class BookmarkDialog(Adw.Window):
     # ------------------------------------------------------------------
 
     def _on_import_clicked(self, _btn) -> None:
-        f = Gtk.FileFilter()
-        f.set_name("HTML Files")
-        f.add_mime_type("text/html")
-        f.add_pattern("*.html")
-        f.add_pattern("*.htm")
+        all_filter = Gtk.FileFilter()
+        all_filter.set_name("All Bookmark Files")
+        all_filter.add_mime_type("text/html")
+        all_filter.add_pattern("*.html")
+        all_filter.add_pattern("*.htm")
+        all_filter.add_pattern("*.gmi")
+
+        html_filter = Gtk.FileFilter()
+        html_filter.set_name("HTML Bookmark Files (*.html)")
+        html_filter.add_mime_type("text/html")
+        html_filter.add_pattern("*.html")
+        html_filter.add_pattern("*.htm")
+
+        gmi_filter = Gtk.FileFilter()
+        gmi_filter.set_name("Gemini Files (*.gmi)")
+        gmi_filter.add_pattern("*.gmi")
+
         store = Gio.ListStore.new(Gtk.FileFilter)
-        store.append(f)
+        store.append(all_filter)
+        store.append(html_filter)
+        store.append(gmi_filter)
 
         dialog = Gtk.FileDialog()
-        dialog.set_title("Import Bookmarks from HTML")
+        dialog.set_title("Import Bookmarks")
         dialog.set_filters(store)
         dialog.open(self, None, self._on_import_chosen)
 
@@ -662,13 +750,52 @@ class BookmarkDialog(Adw.Window):
         except GLib.Error:
             return
         if gfile:
-            async_utils.run(self._do_import(gfile.get_path()))
+            path = gfile.get_path()
+            self._show_import_progress()
+            if path.lower().endswith(".gmi"):
+                async_utils.run(self._do_import_gmi(path))
+            else:
+                async_utils.run(self._do_import(path))
+
+    def _show_import_progress(self) -> None:
+        """Show a pulsing progress bar dialog while import runs."""
+        bar = Gtk.ProgressBar()
+        bar.set_pulse_step(0.1)
+        bar.set_text("Importing bookmarks…")
+        bar.set_show_text(True)
+        bar.set_margin_top(8)
+        bar.set_margin_bottom(4)
+
+        self._import_progress_bar = bar
+        self._import_pulse_id = GLib.timeout_add(80, self._pulse_import_bar)
+
+        dlg = Adw.AlertDialog(heading="Importing…", body="")
+        dlg.set_extra_child(bar)
+        # No buttons — dismissed programmatically when done
+        self._import_progress_dlg = dlg
+        dlg.present(self)
+
+    def _pulse_import_bar(self) -> bool:
+        if hasattr(self, "_import_progress_bar"):
+            self._import_progress_bar.pulse()
+        return GLib.SOURCE_CONTINUE
+
+    def _close_import_progress(self) -> None:
+        if hasattr(self, "_import_pulse_id"):
+            GLib.source_remove(self._import_pulse_id)
+            del self._import_pulse_id
+        if hasattr(self, "_import_progress_dlg"):
+            self._import_progress_dlg.close()
+            del self._import_progress_dlg
+        if hasattr(self, "_import_progress_bar"):
+            del self._import_progress_bar
 
     async def _do_import(self, path: str) -> None:
         try:
             with open(path, "r", encoding="utf-8", errors="replace") as fh:
                 content = fh.read()
         except OSError:
+            GLib.idle_add(self._close_import_progress)
             GLib.idle_add(self._show_import_error)
             return
 
@@ -676,14 +803,52 @@ class BookmarkDialog(Adw.Window):
         parser.feed(content)
 
         count = 0
+        batch: list[dict] = []
+        BATCH = 50
         for bm in parser.bookmarks:
             if bm["url"]:
-                folder = bm["folder"]
-                # Don't import into "Bookmarks Bar" automatically
-                await self._service.add(bm["url"], bm["title"], folder)
+                await self._service.add(bm["url"], bm["title"], bm["folder"])
+                count += 1
+                batch.append(bm)
+                if len(batch) >= BATCH:
+                    # Refresh the visible list incrementally
+                    bookmarks = await self._service.list_all()
+                    GLib.idle_add(self._populate, bookmarks)
+                    GLib.idle_add(self._notify_change)
+                    batch.clear()
+
+        bookmarks = await self._service.list_all()
+        GLib.idle_add(self._close_import_progress)
+        GLib.idle_add(self._populate, bookmarks)
+        GLib.idle_add(self._notify_change)
+        GLib.idle_add(self._show_import_done, count)
+
+    async def _do_import_gmi(self, path: str) -> None:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                lines = fh.readlines()
+        except OSError:
+            GLib.idle_add(self._close_import_progress)
+            GLib.idle_add(self._show_import_error)
+            return
+
+        count = 0
+        for line in lines:
+            line = line.strip()
+            if not line.startswith("=>"):
+                continue
+            rest = line[2:].strip()
+            parts = rest.split(None, 1)
+            if not parts:
+                continue
+            url = parts[0]
+            title = parts[1].strip() if len(parts) > 1 else url
+            if url:
+                await self._service.add(url, title, None)
                 count += 1
 
         bookmarks = await self._service.list_all()
+        GLib.idle_add(self._close_import_progress)
         GLib.idle_add(self._populate, bookmarks)
         GLib.idle_add(self._notify_change)
         GLib.idle_add(self._show_import_done, count)

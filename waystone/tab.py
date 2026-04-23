@@ -1,8 +1,17 @@
 """Tab: owns a renderer widget and exposes a uniform navigation interface."""
 
+import os as _os
+import subprocess
+import tempfile
 from enum import Enum, auto
 from typing import Callable, Optional
 from urllib.parse import urlparse, urlunparse, urljoin, quote
+
+# File extensions recognised as audio or video for the "Open with default app" prompt.
+_MEDIA_EXTENSIONS: frozenset[str] = frozenset({
+    ".mp3", ".ogg", ".wav", ".flac", ".m4a", ".aac", ".opus", ".wma",
+    ".mp4", ".mkv", ".avi", ".mov", ".webm", ".ogv", ".m4v", ".flv",
+})
 
 import gi
 gi.require_version("Gtk", "4.0")
@@ -15,6 +24,8 @@ from .gopher_client import (
     fetch as gopher_fetch, parse_menu, parse_url as gopher_parse_url,
     GopherError, BINARY_TYPES,
 )
+from .spartan_client import fetch as spartan_fetch, SpartanError
+from .titan_client import upload as titan_upload
 from .tofu_store import TOFUStore
 from .identity_service import IdentityService
 from .text_viewer import TextViewer
@@ -25,6 +36,7 @@ class TabKind(Enum):
     WEB = auto()
     GEMINI = auto()
     GOPHER = auto()
+    SPARTAN = auto()
     BLANK = auto()
 
 
@@ -62,6 +74,8 @@ class Tab:
         identity_prompt_cb: Optional[Callable] = None,
         input_prompt_cb: Optional[Callable] = None,
         save_as_cb: Optional[Callable] = None,
+        media_action_cb: Optional[Callable] = None,
+        titan_upload_cb: Optional[Callable] = None,
         open_url_cb: Optional[Callable] = None,
         on_title_changed: Optional[Callable] = None,
         on_uri_changed: Optional[Callable] = None,
@@ -83,6 +97,8 @@ class Tab:
         self._identity_prompt_cb = identity_prompt_cb
         self._input_prompt_cb = input_prompt_cb
         self._save_as_cb = save_as_cb
+        self._media_action_cb = media_action_cb
+        self._titan_upload_cb = titan_upload_cb
         self._open_url_cb = open_url_cb
         self._on_title_changed = on_title_changed
         self._on_uri_changed = on_uri_changed
@@ -102,6 +118,8 @@ class Tab:
             self.widget = self._build_gemini_view(url)
         elif kind == TabKind.GOPHER:
             self.widget = self._build_gopher_view(url)
+        elif kind == TabKind.SPARTAN:
+            self.widget = self._build_spartan_view(url)
         else:
             self.widget = self._build_placeholder("")
 
@@ -117,26 +135,38 @@ class Tab:
             async_utils.run(self._gemini_navigate(url, push=True))
         elif self.kind == TabKind.GOPHER:
             async_utils.run(self._gopher_navigate(url, push=True))
+        elif self.kind == TabKind.SPARTAN:
+            async_utils.run(self._spartan_navigate(url, push=True))
+        # TabKind.BLANK: no-op — BrowserWindow converts to the right kind via _open_new_tab
+
+    def teardown(self):
+        """Stop media and release resources before this tab is removed from the UI."""
+        if self.kind == TabKind.WEB:
+            self._web_view.load_uri("about:blank")
 
     def go_back(self):
         if self.kind == TabKind.WEB:
             if self._web_view.can_go_back():
                 self._web_view.go_back()
-        elif self.kind in (TabKind.GEMINI, TabKind.GOPHER) and self._nav_pos > 0:
+        elif self.kind in (TabKind.GEMINI, TabKind.GOPHER, TabKind.SPARTAN) and self._nav_pos > 0:
             self._nav_pos -= 1
             url = self._nav_history[self._nav_pos]
-            fn = self._gemini_navigate if self.kind == TabKind.GEMINI else self._gopher_navigate
+            fn = (self._gemini_navigate if self.kind == TabKind.GEMINI
+                  else self._gopher_navigate if self.kind == TabKind.GOPHER
+                  else self._spartan_navigate)
             async_utils.run(fn(url, push=False))
 
     def go_forward(self):
         if self.kind == TabKind.WEB:
             if self._web_view.can_go_forward():
                 self._web_view.go_forward()
-        elif self.kind in (TabKind.GEMINI, TabKind.GOPHER) and \
+        elif self.kind in (TabKind.GEMINI, TabKind.GOPHER, TabKind.SPARTAN) and \
                 self._nav_pos < len(self._nav_history) - 1:
             self._nav_pos += 1
             url = self._nav_history[self._nav_pos]
-            fn = self._gemini_navigate if self.kind == TabKind.GEMINI else self._gopher_navigate
+            fn = (self._gemini_navigate if self.kind == TabKind.GEMINI
+                  else self._gopher_navigate if self.kind == TabKind.GOPHER
+                  else self._spartan_navigate)
             async_utils.run(fn(url, push=False))
 
     def reload(self):
@@ -146,6 +176,8 @@ class Tab:
             async_utils.run(self._gemini_navigate(self.current_url, push=False))
         elif self.kind == TabKind.GOPHER and self.current_url:
             async_utils.run(self._gopher_navigate(self.current_url, push=False))
+        elif self.kind == TabKind.SPARTAN and self.current_url:
+            async_utils.run(self._spartan_navigate(self.current_url, push=False))
 
     def reload_hard(self):
         """Bypass cache for web tabs; same as reload for Gemini/Gopher."""
@@ -212,7 +244,10 @@ class Tab:
         return self._web_view
 
     def _build_gemini_view(self, url: str) -> Gtk.Widget:
-        self._viewer = TextViewer(navigate_cb=self._on_gemini_link_clicked)
+        self._viewer = TextViewer(
+            navigate_cb=self._on_gemini_link_clicked,
+            new_tab_cb=self._open_url_cb,
+        )
         self._viewer.apply_theme(self._text_theme)
         overlay = self._make_spinner_overlay()
         if url:
@@ -220,11 +255,25 @@ class Tab:
         return overlay
 
     def _build_gopher_view(self, url: str) -> Gtk.Widget:
-        self._viewer = TextViewer(navigate_cb=self._on_gopher_link_clicked)
+        self._viewer = TextViewer(
+            navigate_cb=self._on_gopher_link_clicked,
+            new_tab_cb=self._open_url_cb,
+        )
         self._viewer.apply_theme(self._text_theme)
         overlay = self._make_spinner_overlay()
         if url:
             async_utils.run(self._gopher_navigate(url, push=True))
+        return overlay
+
+    def _build_spartan_view(self, url: str) -> Gtk.Widget:
+        self._viewer = TextViewer(
+            navigate_cb=self._on_spartan_link_clicked,
+            new_tab_cb=self._open_url_cb,
+        )
+        self._viewer.apply_theme(self._text_theme)
+        overlay = self._make_spinner_overlay()
+        if url:
+            async_utils.run(self._spartan_navigate(url, push=True))
         return overlay
 
     def _make_spinner_overlay(self) -> Gtk.Overlay:
@@ -253,15 +302,27 @@ class Tab:
     # ------------------------------------------------------------------
 
     def _on_gemini_link_clicked(self, url: str):
-        async_utils.run(self._gemini_navigate(url, push=True))
+        if url.startswith("titan://"):
+            async_utils.run(self._titan_upload(url))
+        elif url.startswith(("http://", "https://", "gopher://", "spartan://")) and self._open_url_cb:
+            self._open_url_cb(url)
+        else:
+            async_utils.run(self._gemini_navigate(url, push=True))
 
     def _on_gopher_link_clicked(self, url: str):
-        if url.startswith("http://") or url.startswith("https://"):
-            # h-type HTML link — open in a Web tab via BrowserWindow callback
-            if self._open_url_cb:
-                self._open_url_cb(url)
+        if url.startswith(("http://", "https://", "gemini://", "spartan://")) and self._open_url_cb:
+            self._open_url_cb(url)
         else:
             async_utils.run(self._gopher_navigate(url, push=True))
+
+    def _on_spartan_link_clicked(self, url: str):
+        if url.startswith("spartan-data:"):
+            real_url = url[len("spartan-data:"):]
+            async_utils.run(self._spartan_data_submit(real_url))
+        elif url.startswith(("http://", "https://", "gemini://", "gopher://", "titan://")) and self._open_url_cb:
+            self._open_url_cb(url)
+        else:
+            async_utils.run(self._spartan_navigate(url, push=True))
 
     # ------------------------------------------------------------------
     # Gemini navigation (runs on async thread)
@@ -417,27 +478,11 @@ class Tab:
                 GLib.idle_add(self._viewer.render_plain, text)
 
             else:
-                # Non-text: buffer fully, then prompt for save location.
+                # Non-text: detect media or fall back to Save As.
                 body = await stream.read_all()
                 parsed_path = urlparse(url).path
                 filename = parsed_path.rstrip("/").rsplit("/", 1)[-1] or "download"
-                if self._save_as_cb:
-                    save_path = await self._save_as_cb(filename)
-                    if save_path:
-                        try:
-                            loop = async_utils.get_loop()
-                            await loop.run_in_executor(
-                                None,
-                                lambda p=save_path, d=body: open(p, "wb").write(d),
-                            )
-                            GLib.idle_add(self._viewer.render_info, f"Saved to: {save_path}")
-                        except OSError as exc:
-                            GLib.idle_add(self._viewer.render_error, f"Save failed: {exc}")
-                else:
-                    GLib.idle_add(
-                        self._viewer.render_error,
-                        f"Binary content ({mime}) — no save dialog available.",
-                    )
+                await self._handle_binary(body, filename, mime)
                 GLib.idle_add(self._gtk_load_done, url)
                 return
 
@@ -513,22 +558,9 @@ class Tab:
 
         elif item_type in BINARY_TYPES:
             filename = (selector.rstrip("/").split("/")[-1]) or "download"
-            if self._save_as_cb:
-                save_path = await self._save_as_cb(filename)
-                if save_path:
-                    try:
-                        loop = async_utils.get_loop()
-                        await loop.run_in_executor(
-                            None, lambda p=save_path, d=response.body: open(p, "wb").write(d)
-                        )
-                        GLib.idle_add(
-                            self._viewer.render_info,
-                            f"Saved to: {save_path}",
-                        )
-                    except OSError as e:
-                        GLib.idle_add(self._viewer.render_error, f"Save failed: {e}")
-            else:
-                GLib.idle_add(self._viewer.render_error, "Download not available.")
+            # Gopher type "s" is explicitly audio; other types probed by extension.
+            mime = "audio/ogg" if item_type == "s" else ""
+            await self._handle_binary(response.body, filename, mime)
             GLib.idle_add(self._gtk_load_done, url)
             return
 
@@ -551,6 +583,164 @@ class Tab:
             self._push_nav(url)
 
         GLib.idle_add(self._gtk_load_done, url)
+
+    # ------------------------------------------------------------------
+    # Spartan navigation (async thread)
+    # ------------------------------------------------------------------
+
+    async def _spartan_navigate(self, url: str, push: bool = True, body: bytes = b"") -> None:
+        GLib.idle_add(self._gtk_load_started)
+
+        for _ in range(8):
+            try:
+                status, meta, resp_body = await spartan_fetch(url, body=body)
+            except SpartanError as e:
+                GLib.idle_add(self._viewer.render_error, str(e))
+                GLib.idle_add(self._gtk_load_done, url)
+                return
+
+            if status == 3:
+                body = b""  # body is not re-sent after a redirect
+                url = urljoin(url, meta)
+                continue
+
+            if status != 2:
+                GLib.idle_add(self._viewer.render_error, f"{status} — {meta}")
+                GLib.idle_add(self._gtk_load_done, url)
+                return
+
+            mime, charset = self._parse_mime(meta or "text/gemini")
+            text = resp_body.decode(charset, errors="replace")
+
+            if mime in ("text/gemini", ""):
+                processed = self._preprocess_spartan_gemtext(text, url)
+                GLib.idle_add(self._viewer.begin_gemtext_stream, url)
+                GLib.idle_add(self._viewer.feed_gemtext_lines, processed)
+                GLib.idle_add(self._viewer.end_gemtext_stream)
+                self._page_title = self._extract_gemtext_title(text)
+            elif mime.startswith("text/"):
+                GLib.idle_add(self._viewer.render_plain, text)
+            else:
+                parsed_path = urlparse(url).path
+                filename = parsed_path.rstrip("/").rsplit("/", 1)[-1] or "download"
+                await self._handle_binary(resp_body, filename, mime)
+                GLib.idle_add(self._gtk_load_done, url)
+                return
+
+            self.current_url = url
+            if push:
+                self._push_nav(url)
+            GLib.idle_add(self._gtk_load_done, url)
+            return
+
+        GLib.idle_add(self._viewer.render_error, "Too many redirects.")
+        GLib.idle_add(self._gtk_load_done, url)
+
+    async def _spartan_data_submit(self, url: str) -> None:
+        """Prompt for text input and re-request *url* with it as the request body."""
+        if not self._input_prompt_cb:
+            GLib.idle_add(
+                self._viewer.render_error,
+                "Input is required but not available.",
+            )
+            return
+        user_input = await self._input_prompt_cb("Enter content to submit:", False)
+        if user_input is None:
+            return
+        await self._spartan_navigate(url, push=True, body=user_input.encode("utf-8"))
+
+    @staticmethod
+    def _preprocess_spartan_gemtext(text: str, base_url: str) -> list[str]:
+        """Convert Spartan '= path label' data links to '=> spartan-data:<url> label'."""
+        lines = []
+        for raw in text.splitlines():
+            if raw.startswith("= "):
+                rest = raw[2:].strip()
+                parts = rest.split(None, 1)
+                if parts:
+                    path = parts[0]
+                    label = parts[1].strip() if len(parts) > 1 else path
+                    resolved = urljoin(base_url, path)
+                    lines.append(f"=> spartan-data:{resolved} {label}")
+                else:
+                    lines.append(raw)
+            else:
+                lines.append(raw)
+        return lines
+
+    # ------------------------------------------------------------------
+    # Titan upload (async thread)
+    # ------------------------------------------------------------------
+
+    async def _titan_upload(self, titan_url: str) -> None:
+        """Prompt for content and upload it to a titan:// URL."""
+        if not self._titan_upload_cb:
+            GLib.idle_add(
+                self._viewer.render_error,
+                "Titan upload is not configured.",
+            )
+            return
+
+        result = await self._titan_upload_cb(titan_url)
+        if result is None:
+            return
+
+        body_text, token = result
+        body = body_text.encode("utf-8")
+
+        GLib.idle_add(self._gtk_load_started)
+
+        try:
+            stream = await titan_upload(titan_url, body=body, token=token)
+        except GeminiError as e:
+            GLib.idle_add(self._viewer.render_error, f"Upload failed: {e}")
+            GLib.idle_add(self._gtk_load_done, titan_url)
+            return
+
+        # TOFU check for the upload target's cert
+        parsed = urlparse(titan_url.split(";")[0])
+        host = parsed.hostname or ""
+        port = parsed.port or 1965
+        tofu_status = await self._tofu_check(host, port, stream.header.fingerprint)
+        if tofu_status != "trusted":
+            changed = tofu_status == "changed"
+            trusted = await self._tofu_prompt_cb(host, port, stream.header.fingerprint, changed)
+            if not trusted:
+                await stream.aclose()
+                GLib.idle_add(
+                    self._viewer.render_error,
+                    f"Certificate for {host}:{port} was not trusted.",
+                )
+                GLib.idle_add(self._gtk_load_done, titan_url)
+                return
+            await self._tofu.trust(host, port, stream.header.fingerprint)
+
+        status = stream.header.status
+        meta = stream.header.meta
+        cat = status // 10
+
+        if cat == 3:
+            await stream.aclose()
+            redirect_url = urljoin(titan_url, meta)
+            GLib.idle_add(self._gtk_load_done, titan_url)
+            # Follow the redirect as a Gemini request
+            async_utils.run(self._gemini_navigate(redirect_url, push=True))
+            return
+
+        if cat == 2:
+            body_bytes = await stream.read_all()
+            mime, charset = self._parse_mime(meta)
+            text = body_bytes.decode(charset, errors="replace")
+            gemini_base = "gemini://" + titan_url.split("://", 1)[-1].split(";")[0]
+            if mime in ("text/gemini", ""):
+                GLib.idle_add(self._viewer.render_gemtext, text, gemini_base)
+            else:
+                GLib.idle_add(self._viewer.render_plain, text)
+        else:
+            await stream.aclose()
+            GLib.idle_add(self._viewer.render_error, f"{status} — {meta}")
+
+        GLib.idle_add(self._gtk_load_done, titan_url)
 
     def _push_nav(self, url: str):
         self._nav_history = self._nav_history[: self._nav_pos + 1]
@@ -613,6 +803,63 @@ class Tab:
         return (mime, charset)
 
     # ------------------------------------------------------------------
+    # Binary / media content handling (async thread)
+    # ------------------------------------------------------------------
+
+    async def _handle_binary(self, body: bytes, filename: str, mime: str) -> None:
+        """Prompt to open media with the default app, or fall back to Save As."""
+        is_media = self._is_media_mime(mime) or self._is_media_filename(filename)
+        if is_media and self._media_action_cb:
+            choice = await self._media_action_cb(filename, mime)
+            if choice is None:
+                return  # cancelled
+            if choice == "open":
+                await self._open_with_default_app(body, filename)
+                return
+            # choice == "save" falls through to Save As below
+
+        if self._save_as_cb:
+            save_path = await self._save_as_cb(filename)
+            if save_path:
+                try:
+                    loop = async_utils.get_loop()
+                    await loop.run_in_executor(
+                        None, lambda p=save_path, d=body: open(p, "wb").write(d)
+                    )
+                    GLib.idle_add(self._viewer.render_info, f"Saved to: {save_path}")
+                except OSError as exc:
+                    GLib.idle_add(self._viewer.render_error, f"Save failed: {exc}")
+        else:
+            GLib.idle_add(
+                self._viewer.render_error,
+                f"Binary content ({mime or 'unknown'}) — no save dialog available.",
+            )
+
+    async def _open_with_default_app(self, body: bytes, filename: str) -> None:
+        suffix = _os.path.splitext(filename)[1] or ""
+        loop = async_utils.get_loop()
+        try:
+            fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="waystone_media_")
+            def _write_and_launch():
+                try:
+                    _os.write(fd, body)
+                finally:
+                    _os.close(fd)
+                subprocess.Popen(["xdg-open", tmp_path])
+            await loop.run_in_executor(None, _write_and_launch)
+            GLib.idle_add(self._viewer.render_info, f"Opening: {filename}")
+        except OSError as exc:
+            GLib.idle_add(self._viewer.render_error, f"Could not open media: {exc}")
+
+    @staticmethod
+    def _is_media_mime(mime: str) -> bool:
+        return mime.startswith(("audio/", "video/"))
+
+    @staticmethod
+    def _is_media_filename(filename: str) -> bool:
+        return _os.path.splitext(filename)[1].lower() in _MEDIA_EXTENSIONS
+
+    # ------------------------------------------------------------------
     # Find in page (GTK thread)
     # ------------------------------------------------------------------
 
@@ -627,20 +874,20 @@ class Tab:
             else:
                 fc.search_finish()
             return None
-        elif self.kind in (TabKind.GEMINI, TabKind.GOPHER):
+        elif self.kind in (TabKind.GEMINI, TabKind.GOPHER, TabKind.SPARTAN):
             return self._viewer.find(text)
         return None
 
     def find_next(self):
         if self.kind == TabKind.WEB:
             self._web_view.get_find_controller().search_next()
-        elif self.kind in (TabKind.GEMINI, TabKind.GOPHER):
+        elif self.kind in (TabKind.GEMINI, TabKind.GOPHER, TabKind.SPARTAN):
             self._viewer.find_next()
 
     def find_prev(self):
         if self.kind == TabKind.WEB:
             self._web_view.get_find_controller().search_previous()
-        elif self.kind in (TabKind.GEMINI, TabKind.GOPHER):
+        elif self.kind in (TabKind.GEMINI, TabKind.GOPHER, TabKind.SPARTAN):
             self._viewer.find_prev()
 
     def find_clear(self):
@@ -649,7 +896,7 @@ class Tab:
                 self._web_view.get_find_controller().search_finish()
             except Exception:
                 pass
-        elif self.kind in (TabKind.GEMINI, TabKind.GOPHER):
+        elif self.kind in (TabKind.GEMINI, TabKind.GOPHER, TabKind.SPARTAN):
             self._viewer.find_clear()
 
     # ------------------------------------------------------------------

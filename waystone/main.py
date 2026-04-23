@@ -2,6 +2,7 @@ import asyncio
 import os
 import sys
 from typing import Optional
+from urllib.parse import urlparse
 
 import gi
 gi.require_version("Gtk", "4.0")
@@ -93,8 +94,12 @@ class BrowserWindow(Adw.ApplicationWindow):
         self.address_bar.connect("activate", self._on_navigate)
 
         self.btn_bookmark = Gtk.Button(icon_name="bookmark-new-symbolic")
-        self.btn_bookmark.set_tooltip_text("Bookmark this page")
+        self.btn_bookmark.set_tooltip_text("Bookmark this page  (right-click: Add to Bookmarks Bar)")
         self.btn_bookmark.connect("clicked", self._on_bookmark_clicked)
+        bm_rclick = Gtk.GestureClick()
+        bm_rclick.set_button(3)
+        bm_rclick.connect("pressed", self._on_bookmark_right_click)
+        self.btn_bookmark.add_controller(bm_rclick)
 
         btn_new_tab = Gtk.Button(icon_name="tab-new-symbolic")
         btn_new_tab.set_tooltip_text("New Tab")
@@ -228,6 +233,8 @@ class BrowserWindow(Adw.ApplicationWindow):
             identity_prompt_cb=self._prompt_identity,
             input_prompt_cb=self._prompt_input,
             save_as_cb=self._save_as,
+            media_action_cb=self._media_action,
+            titan_upload_cb=self._prompt_titan_upload,
             open_url_cb=self._open_new_tab,
             on_title_changed=self._on_tab_title_changed,
             on_uri_changed=self._on_tab_uri_changed,
@@ -253,10 +260,11 @@ class BrowserWindow(Adw.ApplicationWindow):
 
     def _kind_for_url(self, url: str) -> TabKind:
         return {
-            Scheme.HTTP:   TabKind.WEB,
-            Scheme.HTTPS:  TabKind.WEB,
-            Scheme.GEMINI: TabKind.GEMINI,
-            Scheme.GOPHER: TabKind.GOPHER,
+            Scheme.HTTP:    TabKind.WEB,
+            Scheme.HTTPS:   TabKind.WEB,
+            Scheme.GEMINI:  TabKind.GEMINI,
+            Scheme.GOPHER:  TabKind.GOPHER,
+            Scheme.SPARTAN: TabKind.SPARTAN,
         }.get(detect_scheme(url), TabKind.WEB)
 
     def _active_tab(self) -> Tab | None:
@@ -316,6 +324,43 @@ class BrowserWindow(Adw.ApplicationWindow):
         else:
             await self._bookmarks.add(url, title)
             GLib.idle_add(self._set_bookmark_icon, True)
+        GLib.idle_add(self._bookmarks_bar.refresh)
+
+    def _on_bookmark_right_click(self, gesture, _n, _x, _y):
+        tab = self._active_tab()
+        if not tab:
+            return
+        url = tab.get_uri()
+        title = tab.get_title()
+        if not url or url == "about:blank" or url.startswith("file://"):
+            return
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+
+        popover = Gtk.Popover()
+        popover.set_parent(self.btn_bookmark)
+        popover.set_has_arrow(True)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box.set_margin_top(4)
+        box.set_margin_bottom(4)
+        box.set_margin_start(4)
+        box.set_margin_end(4)
+
+        btn = Gtk.Button(label="Add to Bookmarks Bar")
+        btn.add_css_class("flat")
+        btn.connect(
+            "clicked",
+            lambda _: (popover.popdown(),
+                       async_utils.run(self._add_to_bar_async(url, title))),
+        )
+        box.append(btn)
+        popover.set_child(box)
+        popover.popup()
+
+    async def _add_to_bar_async(self, url: str, title: str):
+        from .bookmarks_bar import BAR_FOLDER
+        await self._bookmarks.add(url, title, BAR_FOLDER)
+        GLib.idle_add(self._set_bookmark_icon, True)
         GLib.idle_add(self._bookmarks_bar.refresh)
 
     async def _refresh_bookmark_star_async(self, url: str):
@@ -517,6 +562,39 @@ class BrowserWindow(Adw.ApplicationWindow):
         GLib.idle_add(show)
         return await future
 
+    async def _media_action(self, filename: str, mime: str) -> "Optional[str]":
+        """Prompt the user to open a media file with default app or save it."""
+        loop = async_utils.get_loop()
+        future = loop.create_future()
+
+        def show():
+            label = f'"{filename}"'
+            if mime:
+                label += f" ({mime})"
+            dlg = Adw.AlertDialog(
+                heading="Open Media File",
+                body=f"How would you like to open {label}?",
+            )
+            dlg.add_response("cancel", "Cancel")
+            dlg.add_response("save",   "Save As…")
+            dlg.add_response("open",   "Open with Default App")
+            dlg.set_default_response("open")
+            dlg.set_close_response("cancel")
+            dlg.set_response_appearance("open", Adw.ResponseAppearance.SUGGESTED)
+
+            def on_response(_d, resp):
+                if not future.done():
+                    loop.call_soon_threadsafe(
+                        future.set_result,
+                        resp if resp in ("open", "save") else None,
+                    )
+
+            dlg.connect("response", on_response)
+            dlg.present(self)
+
+        GLib.idle_add(show)
+        return await future
+
     def _open_url_from_dialog(self, url: str):
         tab = self._active_tab()
         if tab and tab.kind == self._kind_for_url(url):
@@ -554,6 +632,69 @@ class BrowserWindow(Adw.ApplicationWindow):
                 value = entry.get_text() if resp == "ok" else None
                 if not future.done():
                     loop.call_soon_threadsafe(future.set_result, value)
+
+            dlg.connect("response", on_response)
+            dlg.present(self)
+
+        GLib.idle_add(show)
+        return await future
+
+    # ------------------------------------------------------------------
+    # Titan upload prompt (called from async thread; dialog shown on GTK thread)
+    # ------------------------------------------------------------------
+
+    async def _prompt_titan_upload(self, url: str) -> "Optional[tuple[str, str]]":
+        """Prompt for Titan upload body and optional token. Returns (body_text, token) or None."""
+        loop = async_utils.get_loop()
+        future = loop.create_future()
+
+        def show():
+            host = urlparse(url.split(";")[0]).hostname or url
+
+            text_view = Gtk.TextView()
+            text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+            text_view.set_left_margin(4)
+            text_view.set_right_margin(4)
+            text_view.set_top_margin(4)
+            text_view.set_bottom_margin(4)
+            text_view.set_monospace(True)
+
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_child(text_view)
+            scroll.set_size_request(-1, 180)
+            scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
+            token_entry = Gtk.Entry()
+            token_entry.set_placeholder_text("Token (optional)")
+            token_entry.set_margin_top(8)
+            token_entry.set_activates_default(True)
+
+            outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            outer.set_margin_top(8)
+            outer.append(scroll)
+            outer.append(token_entry)
+
+            dlg = Adw.AlertDialog(
+                heading="Upload via Titan",
+                body=f"Uploading to {host}",
+            )
+            dlg.set_extra_child(outer)
+            dlg.add_response("cancel", "Cancel")
+            dlg.add_response("upload", "Upload")
+            dlg.set_default_response("upload")
+            dlg.set_close_response("cancel")
+            dlg.set_response_appearance("upload", Adw.ResponseAppearance.SUGGESTED)
+
+            def on_response(_d, resp):
+                if resp == "upload":
+                    buf = text_view.get_buffer()
+                    body_text = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
+                    token = token_entry.get_text().strip()
+                    if not future.done():
+                        loop.call_soon_threadsafe(future.set_result, (body_text, token))
+                else:
+                    if not future.done():
+                        loop.call_soon_threadsafe(future.set_result, None)
 
             dlg.connect("response", on_response)
             dlg.present(self)
@@ -646,7 +787,9 @@ class BrowserWindow(Adw.ApplicationWindow):
             self.tab_view.set_selected_page(self.tab_view.get_nth_page((pos - 1) % n))
 
     def _on_tab_close(self, tab_view, page):
-        self._tabs.pop(page, None)
+        tab = self._tabs.pop(page, None)
+        if tab:
+            tab.teardown()
         tab_view.close_page_finish(page, True)
         if tab_view.get_n_pages() == 0:
             self._open_new_tab()

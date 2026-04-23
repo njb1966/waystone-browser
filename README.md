@@ -1,6 +1,6 @@
 # Waystone Browser
 
-A multi-protocol GUI browser for Linux supporting HTTP/HTTPS, Gemini, and Gopher.
+A multi-protocol GUI browser for Linux supporting HTTP/HTTPS, Gemini, Gopher, Spartan, and Titan.
 
 Built with Python, GTK 4, Libadwaita, and WebKitGTK.
 
@@ -8,11 +8,13 @@ Built with Python, GTK 4, Libadwaita, and WebKitGTK.
 
 ## Supported protocols
 
-| Protocol | Rendering | Notes |
-|----------|-----------|-------|
-| `http://` / `https://` | WebKitGTK | Full web engine; JS on by default |
-| `gemini://` | Native text renderer | Gemtext, redirects, input prompts, TOFU, client certificates |
-| `gopher://` | Native text renderer | Menus, text, search (type 7), binary download |
+| Protocol | Scheme | Rendering | Notes |
+|----------|--------|-----------|-------|
+| HTTP / HTTPS | `http://` `https://` | WebKitGTK | Full web engine; JS on by default |
+| Gemini | `gemini://` | Native text renderer | Gemtext, redirects, input prompts, TOFU, client certificates, streaming render |
+| Gopher | `gopher://` | Native text renderer | Menus, text, search (type 7), binary download/open |
+| Spartan | `spartan://` | Native text renderer | Gemtext, redirects, data-input links (`=`) |
+| Titan | `titan://` | Upload dialog | Write content to Gemini capsules; triggered by `titan://` links in Gemini pages |
 
 ---
 
@@ -25,29 +27,45 @@ Built with Python, GTK 4, Libadwaita, and WebKitGTK.
 - **Find in page** — Ctrl+F with live match highlighting; F3 / Shift+F3 to step through
 - **Per-tab zoom** — Ctrl+= / Ctrl+- / Ctrl+0 (web tabs)
 - **Print** — Ctrl+P opens the native print dialog (web tabs)
-- **Open in new tab** — `target="_blank"` and gemini:// / gopher:// links from web pages
+- **Cross-protocol links** — clicking a `gemini://` link from a web page (or vice-versa) opens it in the correct tab type automatically
+- **Open in new tab** — middle-click or right-click any link in Gemini / Gopher / Spartan pages
 
 ### Bookmarks & History
-- **Bookmarks** — add with Ctrl+D; organised into folders; bookmarks bar for quick access
-- **Bookmarks bar** — toggle with Ctrl+Shift+B; shows items in the "Bookmarks Bar" folder
+- **Bookmarks** — add with Ctrl+D; right-click the star to quick-add directly to the Bookmarks Bar
+- **Bookmark folders** — organise into arbitrarily nested folders; right-click a folder to rename, move, or delete it
+- **Move Under…** — drag a folder under any other folder or to top level via context menu
+- **Bookmarks bar** — toggle with Ctrl+Shift+B; items directly in "Bookmarks Bar" show as flat buttons; sub-folders show as dropdown menus
+- **Import / Export** — import Netscape HTML bookmark files (with full nested folder hierarchy) or `.gmi` files; export to Netscape HTML; import shows live progress
 - **History** — auto-recorded per navigation; full-text search; clear all
 
 ### Gemini
+- **Streaming render** — page content appears progressively as it arrives (no waiting for the full response)
+- **SSLContext caching** — TLS session resumption across requests to the same capsule (faster reloads and relay hops)
 - **TOFU certificate trust** — trust-on-first-use with change detection and cert management
 - **Input prompts** — handles status 10 (plain) and 11 (sensitive/password) requests
-- **Client certificate identities** — create, import, and export identities as `.p12` files;
-  identities are automatically sent to capsules that require them (status 60)
-- **Binary downloads** — non-text Gemini responses prompt a Save As… dialog
+- **Client certificate identities** — create, import, and export identities as `.p12` files; identities are automatically sent to capsules that require them (status 60)
+- **Binary / media content** — non-text responses prompt to Open with default app or Save As…
 - **Redirect handling** — follows up to 8 redirects automatically
-- **Error display** — 6x cert errors (61/62) shown with clear messages
+- **Titan upload** — click a `titan://` link to open an upload dialog with multiline text editor and optional auth token
 
-### Gemini/Gopher appearance
+### Spartan
+- **Full navigation** — browse `spartan://` pages with gemtext rendering, plain text, and binary download
+- **Data-input links** — `=` link lines (Spartan's form equivalent) render with a ✏ icon; clicking prompts for text and re-requests with it as the request body
+- **Redirect handling** — follows up to 8 code-3 redirects
+- **Cross-protocol links** — Spartan pages can link to Gemini, Gopher, or web URLs
+
+### Gopher
+- **Full RFC 1436 support** — menus, text files, type-7 search, binary types
+- **Media / binary content** — binary responses prompt to Open with default app or Save As…
+- **Cross-protocol links** — `h`-type links open in the appropriate tab (Gemini, web, or Gopher)
+
+### Gemini/Gopher/Spartan appearance
 - **7 built-in colour themes** — System, Solarized Light, Solarized Dark, Nord, Dracula, Paper, Gruvbox Dark
 - **Text size** — Small (12 pt) / Normal (14 pt) / Large (16 pt) / X-Large (19 pt)
 - **Body font** — System Default, Noto Sans, Noto Serif, Cantarell, DejaVu Sans, DejaVu Serif
 - **Noto Color Emoji** — emoji fallback in all themes
-- **Link type icons** — ⇒ local capsule links, ● gemini/web/gopher links; colour-coded by protocol
-- **Loading spinner** — visual indicator during Gemini/Gopher page loads
+- **Link type icons** — ⇒ local / same-capsule links, ● cross-capsule / external links, ✏ Spartan data-input links; colour-coded by protocol
+- **Loading spinner** — visual indicator during page loads
 
 ### Web (HTTP/HTTPS)
 - **Full WebKitGTK engine** — JavaScript, cookies, modern CSS/HTML
@@ -192,14 +210,28 @@ flatpak-builder --user --install --force-clean \
 
 ## Bookmarks bar
 
-The bookmarks bar sits below the address bar and shows bookmarks in the **"Bookmarks Bar"** folder.
+The bookmarks bar sits below the address bar.
 
-1. Star a page (Ctrl+D) to save it as a regular bookmark.
-2. Open **Bookmarks…** → click the folder icon on any row → pick **Bookmarks Bar**.
-3. The link appears as a button in the toolbar immediately.
+- **Flat buttons** — bookmarks saved directly in the **"Bookmarks Bar"** folder appear as buttons
+- **Dropdown menus** — sub-folders of "Bookmarks Bar" appear as dropdown `▾` menu buttons
+- Right-click any flat button to **Edit** or **Remove** it from the bar
+- Right-click the ★ bookmark star to **Add to Bookmarks Bar** instantly
 
-Bookmarks can also be organised into custom folders via the same Move menu.
-Right-click a folder in the sidebar to **Rename** or **Delete** it.
+To add bookmarks to the bar:
+1. Star a page (Ctrl+D) to save it as a regular bookmark, then open **Bookmarks…** and move it.
+2. Or right-click the ★ star while on any page to add directly to the bar.
+
+---
+
+## Bookmarks manager
+
+Open via Ctrl+B or the menu.
+
+- **Sidebar** — click a folder to filter the bookmark list; "All Bookmarks" and "Unfiled" are always pinned at the top; "Bookmarks Bar" is pinned below them
+- **Folders** — click the folder icon on any bookmark row to move it; right-click a folder in the sidebar to rename, move under another folder, or delete it
+- **Bulk delete** — tick folder checkboxes in the sidebar then click "Delete Selected"
+- **Import** — accepts Netscape HTML (`.html`/`.htm`) and Gemini link files (`.gmi`); nested folder structure is preserved from HTML imports; a live progress indicator shows during large imports
+- **Export** — saves all bookmarks as a Netscape HTML file compatible with other browsers
 
 ---
 
@@ -215,8 +247,8 @@ Open via the menu (⋮) → **Settings…**
 
 ### Gemini
 - **Text Size** — Small / Normal / Large / X-Large
-- **Colour Theme** — 7 built-in themes for Gemini and Gopher pages
-- **Body Font** — override the font used in Gemini/Gopher text rendering
+- **Colour Theme** — 7 built-in themes for Gemini / Gopher / Spartan pages
+- **Body Font** — override the font used in text rendering
 - **Trusted Certificates** — view and remove stored TOFU fingerprints
 
 ---
@@ -250,6 +282,26 @@ send the correct certificate with no additional prompts.
 
 ---
 
+## Spartan browsing
+
+[Spartan](gemini://spartan.mozz.us) is a simpler, TLS-optional alternative to Gemini.
+
+- Type any `spartan://` URL in the address bar to open a Spartan tab
+- Pages render identically to Gemini (gemtext or plain text)
+- **Data-input links** — lines beginning with `=` in Spartan gemtext are interactive form-like links (rendered with a ✏ icon); clicking one prompts for text, which is submitted as the request body
+- Redirects, cross-protocol links, and binary downloads all work the same as in Gemini tabs
+
+## Titan uploading
+
+[Titan](gemini://transjovian.org/titan) is an upload protocol that allows writing content to Gemini capsules (e.g. wiki pages).
+
+- When a Gemini page contains a `titan://` link, clicking it opens an **Upload via Titan** dialog
+- Enter the content to upload in the multiline text editor; enter an auth token if the server requires one
+- After upload the server's response is rendered in the current tab
+- TOFU certificate trust applies to Titan connections the same as Gemini
+
+---
+
 ## Data storage
 
 | Data | Location |
@@ -264,11 +316,13 @@ send the correct certificate with no additional prompts.
 ```
 waystone/
   main.py              — BrowserWindow, WaystoneApp entry point
-  tab.py               — Tab (renderer widget + nav state + zoom)
-  text_viewer.py       — GtkTextView renderer for Gemini/Gopher
-  gemini_client.py     — Async Gemini protocol client (TLS + TOFU + client certs)
+  tab.py               — Tab (renderer widget + navigation + zoom)
+  text_viewer.py       — GtkTextView renderer for Gemini / Gopher / Spartan
+  gemini_client.py     — Async Gemini client (TLS, TOFU, streaming, client certs)
+  spartan_client.py    — Async Spartan client (plain TCP, port 300)
+  titan_client.py      — Async Titan upload client (TLS, returns GeminiStream)
+  gopher_client.py     — Async Gopher client (RFC 1436)
   gemtext.py           — Gemtext parser
-  gopher_client.py     — Async Gopher protocol client (RFC 1436)
   navigation.py        — URL normalisation and scheme dispatch
   tofu_store.py        — TOFU certificate store
   identity_service.py  — Client certificate identity management
@@ -276,7 +330,7 @@ waystone/
   history_service.py   — History append + search
   themes.py            — Built-in colour themes (7 themes)
   bookmark_dialog.py   — Bookmarks manager (two-pane, folder sidebar)
-  bookmarks_bar.py     — Bookmarks toolbar widget
+  bookmarks_bar.py     — Bookmarks toolbar widget (buttons + folder dropdowns)
   history_dialog.py    — History viewer
   identity_dialog.py   — Identity manager (create, import, export)
   settings_dialog.py   — Settings (Adw.PreferencesDialog)

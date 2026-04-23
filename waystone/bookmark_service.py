@@ -63,6 +63,33 @@ class BookmarkService:
         )
         await self._db.conn.commit()
 
+    async def move_folder(self, old_path: str, new_path: str) -> None:
+        """Move a folder (and all its sub-folders) to a new path."""
+        # Sub-folders first: "Old/Child" → "New/Child"
+        await self._db.conn.execute(
+            "UPDATE bookmarks "
+            "SET folder = ? || substr(folder, ?), updated_at = unixepoch() "
+            "WHERE folder LIKE ?",
+            (new_path, len(old_path) + 1, old_path + "/%"),
+        )
+        # Exact match: "Old" → "New"
+        await self._db.conn.execute(
+            "UPDATE bookmarks SET folder = ?, updated_at = unixepoch() "
+            "WHERE folder = ?",
+            (new_path, old_path),
+        )
+        await self._db.conn.commit()
+
+    async def list_bar_and_children(self, bar_folder: str) -> list[dict]:
+        """Return all bookmarks in bar_folder and any of its sub-folders."""
+        async with self._db.conn.execute(
+            "SELECT id, title, url, folder, created_at FROM bookmarks "
+            "WHERE folder = ? OR folder LIKE ? "
+            "ORDER BY folder ASC, created_at DESC",
+            (bar_folder, bar_folder + "/%"),
+        ) as cursor:
+            return [dict(row) for row in await cursor.fetchall()]
+
     async def clear_all(self) -> None:
         """Delete every bookmark."""
         await self._db.conn.execute("DELETE FROM bookmarks")

@@ -23,6 +23,8 @@ _LINK_ICONS: dict[str, tuple[str, str]] = {
     "gopher_dir":   ("●", "link_icon_green"),   # gopher directory / search
     "gopher_text":  ("⇒", "link_icon_green"),   # gopher text file
     "gopher_bin":   ("●", "link_icon_green"),   # binary / image / audio
+    "spartan":      ("⇒", "link_icon_blue"),    # spartan:// link
+    "spartan_data": ("✏", "link_icon_blue"),    # Spartan data-input (= link)
 }
 
 # Short type hints appended to binary Gopher labels so the type is still visible.
@@ -45,12 +47,18 @@ class TextViewer(Gtk.ScrolledWindow):
     """
     Scrollable text renderer.  Wraps a GtkTextView with styled tags.
 
-    navigate_cb(url: str) is called when the user clicks a link.
+    navigate_cb(url: str) is called on left-click.
+    new_tab_cb(url: str) is called on middle-click or "Open in New Tab".
     """
 
-    def __init__(self, navigate_cb: Callable[[str], None]):
+    def __init__(
+        self,
+        navigate_cb: Callable[[str], None],
+        new_tab_cb: Optional[Callable[[str], None]] = None,
+    ):
         super().__init__()
         self._navigate_cb = navigate_cb
+        self._new_tab_cb = new_tab_cb
         self._link_tags: dict[str, str] = {}   # tag_name -> url
         self._find_matches: list[tuple[int, int]] = []
         self._find_current: int = -1
@@ -84,8 +92,9 @@ class TextViewer(Gtk.ScrolledWindow):
 
         self._create_permanent_tags()
 
-        # Click to follow links
+        # Left-click to follow links; middle-click to open in new tab
         click = Gtk.GestureClick()
+        click.set_button(0)  # listen to all buttons
         click.connect("pressed", self._on_click)
         self._view.add_controller(click)
 
@@ -303,9 +312,20 @@ class TextViewer(Gtk.ScrolledWindow):
                 return "gopher_dir"
             if gopher_item_type == "0":
                 return "gopher_text"
-            if gopher_item_type == "h" or url.startswith("http"):
+            if gopher_item_type == "h":
+                # h-type carries the real URL — classify by its actual scheme
+                if url.startswith("gemini://"):
+                    return "gemini"
+                if url.startswith("gopher://"):
+                    return "gopher_dir"
+                return "web"
+            if url.startswith("http"):
                 return "web"
             return "gopher_bin"
+        if url.startswith("spartan-data:"):
+            return "spartan_data"
+        if url.startswith("spartan://"):
+            return "spartan"
         if url.startswith("gemini://"):
             return "gemini"
         if url.startswith("gopher://"):
@@ -471,12 +491,42 @@ class TextViewer(Gtk.ScrolledWindow):
     # ------------------------------------------------------------------
 
     def _on_click(self, gesture, n_press, x, y):
+        button = gesture.get_current_button()
         iter_ = self._iter_at_xy(x, y)
         if iter_ is None:
             return
         url = self._url_at_iter(iter_)
-        if url:
+        if not url:
+            return
+
+        if button == 1:
             self._navigate_cb(url)
+        elif url.startswith("spartan-data:"):
+            # Data-input links always go to navigate_cb — "open in new tab" makes no sense.
+            self._navigate_cb(url)
+        elif button == 2 and self._new_tab_cb:
+            self._new_tab_cb(url)
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        elif button == 3 and self._new_tab_cb:
+            self._show_link_menu(url, x, y)
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+
+    def _show_link_menu(self, url: str, x: float, y: float):
+        """Show a small context menu for a right-clicked link."""
+        popover = Gtk.Popover()
+        popover.set_parent(self._view)
+        rect = Gdk.Rectangle()
+        rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
+        popover.set_pointing_to(rect)
+        popover.set_has_arrow(False)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        btn = Gtk.Button(label="Open Link in New Tab")
+        btn.add_css_class("flat")
+        btn.connect("clicked", lambda _: (popover.popdown(), self._new_tab_cb(url)))
+        box.append(btn)
+        popover.set_child(box)
+        popover.popup()
 
     def _on_motion(self, controller, x, y):
         iter_ = self._iter_at_xy(x, y)
