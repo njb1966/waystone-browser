@@ -1,6 +1,6 @@
 app-id: com.waystone.browser
 runtime: org.gnome.Platform
-runtime-version: "47"
+runtime-version: "48"
 sdk: org.gnome.Sdk
 command: waystone
 
@@ -16,6 +16,16 @@ finish-args:
   - --env=WEBKIT_FORCE_SANDBOX=0
 
 modules:
+  # cryptography — binary extension, not in the GNOME runtime; use stable ABI wheel
+  - name: python3-cryptography
+    buildsystem: simple
+    build-commands:
+      - pip3 install --prefix=/app --no-deps --no-build-isolation cryptography-46.0.7-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+    sources:
+      - type: file
+        url: https://files.pythonhosted.org/packages/4a/9a/1765afe9f572e239c3469f2cb429f3ba7b31878c893b246b4b2994ffe2fe/cryptography-46.0.7-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+        sha256: 5ad9ef796328c5e3c4ceed237a183f5d41d21150f972455a9d926593a1dcb308
+
   # aiosqlite — pure Python, not in the GNOME runtime
   - name: python3-aiosqlite
     buildsystem: simple
@@ -35,6 +45,8 @@ modules:
           /app/share/applications/com.waystone.browser.desktop
       - install -Dm644 data/com.waystone.browser.svg
           /app/share/icons/hicolor/scalable/apps/com.waystone.browser.svg
+      - install -Dm644 data/com.waystone.browser.metainfo.xml
+          /app/share/metainfo/com.waystone.browser.metainfo.xml
     sources:
       - type: dir
         path: .

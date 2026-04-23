@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "waystone-browser"
-version = "0.1.0"
-description = "Multi-protocol GUI browser: HTTP/HTTPS, Gemini, Gopher"
+version = "1.0.0"
+description = "Multi-protocol GUI browser: HTTP/HTTPS, Gemini, Gopher, Spartan, Titan"
 requires-python = ">=3.11"
 dependencies = [
     "aiosqlite>=0.19",

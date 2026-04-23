@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.waystone.browser</id>
+
+  <name>Waystone</name>
+  <summary>Multi-protocol browser for the small web</summary>
+
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      Waystone is a lightweight, multi-protocol browser designed for the small web.
+      It supports HTTP/HTTPS (via WebKit), Gemini, Gopher, Spartan, and Titan protocols,
+      giving you a single app for browsing both the modern and alternative internet.
+    </p>
+    <p>Features include:</p>
+    <ul>
+      <li>HTTP/HTTPS browsing powered by WebKitGTK</li>
+      <li>Gemini protocol with streaming rendering and TLS support</li>
+      <li>Gopher protocol browser</li>
+      <li>Spartan protocol support including data-input links</li>
+      <li>Titan protocol file and text uploads</li>
+      <li>Bookmarks with folder organisation and a pinnable Bookmarks Bar</li>
+      <li>Browsing history with search</li>
+      <li>HTML bookmark import/export</li>
+      <li>Find-in-page for all text-based protocols</li>
+      <li>Dark mode support via system preference</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">com.waystone.browser.desktop</launchable>
+
+  <url type="homepage">https://github.com/njb1966/waystone-browser</url>
+  <url type="bugtracker">https://github.com/njb1966/waystone-browser/issues</url>
+
+  <developer id="com.waystone">
+    <name>Nick Burchett</name>
+  </developer>
+
+  <provides>
+    <binary>waystone</binary>
+  </provides>
+
+  <content_rating type="oars-1.1">
+    <content_attribute id="social-info">mild</content_attribute>
+  </content_rating>
+
+  <releases>
+    <release version="1.0.0" date="2026-04-23">
+      <description>
+        <p>Initial release featuring HTTP/HTTPS, Gemini, Gopher, Spartan, and Titan protocol support.</p>
+      </description>
+    </release>
+  </releases>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Waystone browsing a Gemini capsule</caption>
+      <image>https://raw.githubusercontent.com/njb1966/waystone-browser/main/data/screenshots/gemini.png</image>
+    </screenshot>
+  </screenshots>
+</component>
