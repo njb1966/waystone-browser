@@ -121,7 +121,7 @@ def _build_netscape_html(bookmarks: list[dict]) -> str:
     return "\n".join(lines)
 
 
-class BookmarkDialog(Adw.Window):
+class BookmarkDialog(Adw.Dialog):
     def __init__(
         self,
         parent: Gtk.Window,
@@ -131,9 +131,8 @@ class BookmarkDialog(Adw.Window):
     ) -> None:
         super().__init__()
         self.set_title("Bookmarks")
-        self.set_default_size(760, 560)
-        self.set_transient_for(parent)
-        self.set_modal(True)
+        self.set_content_width(760)
+        self.set_content_height(560)
 
         self._service         = service
         self._open_url_cb     = open_url_cb
@@ -145,6 +144,7 @@ class BookmarkDialog(Adw.Window):
         self._checked_folders: set[str]  = set()
 
         self._build_ui()
+        self.present(parent)
         async_utils.run(self._load())
 
     # ------------------------------------------------------------------
@@ -153,7 +153,7 @@ class BookmarkDialog(Adw.Window):
 
     def _build_ui(self) -> None:
         toolbar_view = Adw.ToolbarView()
-        self.set_content(toolbar_view)
+        self.set_child(toolbar_view)
 
         header = Adw.HeaderBar()
         toolbar_view.add_top_bar(header)

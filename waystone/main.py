@@ -376,13 +376,12 @@ class BrowserWindow(Adw.ApplicationWindow):
         )
 
     def _show_bookmarks(self):
-        dlg = BookmarkDialog(
+        BookmarkDialog(
             parent=self,
             service=self._bookmarks,
             open_url_cb=self._open_url_from_dialog,
             on_change_cb=self._bookmarks_bar.refresh,
         )
-        dlg.present()
 
     def _toggle_bookmarks_bar(self) -> None:
         visible = not self._bookmarks_bar.get_visible()
@@ -398,7 +397,7 @@ class BrowserWindow(Adw.ApplicationWindow):
             parent=self,
             service=self._history,
             open_url_cb=self._open_url_from_dialog,
-        ).present()
+        )
 
     def _show_identities(self):
         IdentityDialog(parent=self, service=self._identities)

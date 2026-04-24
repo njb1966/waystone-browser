@@ -18,19 +18,19 @@ def _fmt_time(ts: int) -> str:
         return ""
 
 
-class HistoryDialog(Adw.Window):
+class HistoryDialog(Adw.Dialog):
     def __init__(self, parent: Gtk.Window, service: HistoryService, open_url_cb):
         super().__init__()
         self.set_title("History")
-        self.set_default_size(660, 560)
-        self.set_transient_for(parent)
-        self.set_modal(True)
+        self.set_content_width(660)
+        self.set_content_height(560)
 
         self._service = service
         self._open_url_cb = open_url_cb
         self._all_history: list[dict] = []
 
         self._build_ui()
+        self.present(parent)
         async_utils.run(self._load())
 
     # ------------------------------------------------------------------
@@ -39,7 +39,7 @@ class HistoryDialog(Adw.Window):
 
     def _build_ui(self):
         toolbar_view = Adw.ToolbarView()
-        self.set_content(toolbar_view)
+        self.set_child(toolbar_view)
 
         header = Adw.HeaderBar()
 

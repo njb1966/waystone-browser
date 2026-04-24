@@ -529,7 +529,14 @@ class TextViewer(Gtk.ScrolledWindow):
         popover.popup()
 
     def _on_motion(self, controller, x, y):
-        iter_ = self._iter_at_xy(x, y)
+        bx, by = self._view.window_to_buffer_coords(
+            Gtk.TextWindowType.WIDGET, int(x), int(y)
+        )
+        result = self._view.get_iter_at_position(bx, by)
+        if isinstance(result, tuple):
+            _, iter_, _ = result
+        else:
+            iter_ = result
         is_link = iter_ is not None and self._url_at_iter(iter_) is not None
         cursor_name = "pointer" if is_link else "text"
         self._view.set_cursor(Gdk.Cursor.new_from_name(cursor_name, None))
