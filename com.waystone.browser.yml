@@ -10,8 +10,8 @@ finish-args:
   - --socket=fallback-x11
   - --socket=wayland
   - --device=dri
-  # User home access for downloads and config
-  - --filesystem=home
+  # Downloads folder as default save location; all other file access via portals
+  - --filesystem=xdg-download
   # Allow user namespaces so WebKit's internal bwrap sandbox works inside Flatpak
   - --allow=devel
 
