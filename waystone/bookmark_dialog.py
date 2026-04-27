@@ -121,7 +121,7 @@ def _build_netscape_html(bookmarks: list[dict]) -> str:
     return "\n".join(lines)
 
 
-class BookmarkDialog(Adw.Dialog):
+class BookmarkDialog(Adw.Window):
     def __init__(
         self,
         parent: Gtk.Window,
@@ -131,8 +131,8 @@ class BookmarkDialog(Adw.Dialog):
     ) -> None:
         super().__init__()
         self.set_title("Bookmarks")
-        self.set_content_width(760)
-        self.set_content_height(560)
+        self.set_default_size(760, 560)
+        self.set_transient_for(parent)
 
         self._service         = service
         self._open_url_cb     = open_url_cb
@@ -144,7 +144,7 @@ class BookmarkDialog(Adw.Dialog):
         self._checked_folders: set[str]  = set()
 
         self._build_ui()
-        self.present(parent)
+        self.present()
         async_utils.run(self._load())
 
     # ------------------------------------------------------------------
@@ -153,7 +153,7 @@ class BookmarkDialog(Adw.Dialog):
 
     def _build_ui(self) -> None:
         toolbar_view = Adw.ToolbarView()
-        self.set_child(toolbar_view)
+        self.set_content(toolbar_view)
 
         header = Adw.HeaderBar()
         toolbar_view.add_top_bar(header)
@@ -562,11 +562,11 @@ class BookmarkDialog(Adw.Dialog):
         btn_open.add_css_class("suggested-action")
         btn_open.connect("clicked", lambda _: self._do_open(url))
 
-        btn_move = Gtk.MenuButton(icon_name="folder-symbolic")
+        btn_move = Gtk.Button(icon_name="folder-symbolic")
         btn_move.set_valign(Gtk.Align.CENTER)
         btn_move.set_has_frame(False)
         btn_move.set_tooltip_text("Move to folder")
-        btn_move.set_popover(self._make_move_popover(url))
+        btn_move.connect("clicked", lambda _, u=url: self._show_move_dialog(u))
 
         btn_del = Gtk.Button(icon_name="user-trash-symbolic")
         btn_del.set_valign(Gtk.Align.CENTER)
@@ -587,45 +587,51 @@ class BookmarkDialog(Adw.Dialog):
     # Move-to-folder popover
     # ------------------------------------------------------------------
 
-    def _make_move_popover(self, url: str) -> Gtk.Popover:
-        """Build the 'Move to folder' popover. Folders are snapshotted at creation."""
-        # Exclude Bookmarks Bar from dynamic list — it's always pinned at index 1.
+    def _show_move_dialog(self, url: str) -> None:
+        """Show an AlertDialog with a DropDown to move url to a folder."""
         snapshot = [f for f in self._folders if f != _BAR_FOLDER]
 
-        listbox = Gtk.ListBox()
-        listbox.set_selection_mode(Gtk.SelectionMode.NONE)
-        listbox.add_css_class("boxed-list")
-
-        listbox.append(self._popover_text_row("Unfiled"))
-        listbox.append(self._popover_text_row("Bookmarks Bar"))
+        folder_labels: list[str] = ["Unfiled", "Bookmarks Bar"]
+        folder_values: list = [None, _BAR_FOLDER]
         for fname in snapshot:
-            listbox.append(self._popover_text_row(fname.replace("/", " › ")))
-        listbox.append(self._popover_text_row("New Folder…"))
+            folder_labels.append(fname.replace("/", " › "))
+            folder_values.append(fname)
+        folder_labels.append("New Folder…")
+        folder_values.append("__new__")
 
-        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        inner.set_margin_top(6)
-        inner.set_margin_bottom(6)
-        inner.set_margin_start(6)
-        inner.set_margin_end(6)
-        inner.append(listbox)
+        current = next((b.get("folder") for b in self._all_bookmarks if b["url"] == url), None)
+        try:
+            sel = folder_values.index(current)
+        except ValueError:
+            sel = 0
 
-        popover = Gtk.Popover()
-        popover.set_child(inner)
+        string_list = Gtk.StringList.new(folder_labels)
+        dropdown = Gtk.DropDown(model=string_list)
+        dropdown.set_selected(sel)
+        dropdown.set_margin_top(8)
 
-        def on_activated(_lb, row, p=popover, u=url, folders=snapshot):
-            idx = row.get_index()
-            p.popdown()
-            if idx == 0:
-                async_utils.run(self._do_move(u, None))
-            elif idx == 1:
-                async_utils.run(self._do_move(u, _BAR_FOLDER))
-            elif 2 <= idx <= 1 + len(folders):
-                async_utils.run(self._do_move(u, folders[idx - 2]))
+        dlg = Adw.AlertDialog(heading="Move to Folder", body="")
+        dlg.set_extra_child(dropdown)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("move", "Move")
+        dlg.set_default_response("move")
+        dlg.set_close_response("cancel")
+        dlg.set_response_appearance("move", Adw.ResponseAppearance.SUGGESTED)
+
+        def on_response(_d, resp):
+            if resp != "move":
+                return
+            idx = dropdown.get_selected()
+            if idx >= len(folder_values):
+                return
+            target = folder_values[idx]
+            if target == "__new__":
+                self._prompt_new_folder(url)
             else:
-                self._prompt_new_folder(u)
+                async_utils.run(self._do_move(url, target))
 
-        listbox.connect("row-activated", on_activated)
-        return popover
+        dlg.connect("response", on_response)
+        dlg.present(self)
 
     def _popover_text_row(self, label: str) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
@@ -929,11 +935,14 @@ class BookmarkDialog(Adw.Dialog):
             if b["url"] == url:
                 b["folder"] = folder
                 break
-        seen: list[str] = []
+        seen: set[str] = set()
         for b in self._all_bookmarks:
             f = b.get("folder")
-            if f and f not in seen:
-                seen.append(f)
+            if not f:
+                continue
+            parts = f.split("/")
+            for i in range(1, len(parts) + 1):
+                seen.add("/".join(parts[:i]))
         self._folders = sorted(seen)
         GLib.idle_add(self._rebuild_sidebar)
         GLib.idle_add(self._rebuild_bm_list)

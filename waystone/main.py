@@ -376,12 +376,15 @@ class BrowserWindow(Adw.ApplicationWindow):
         )
 
     def _show_bookmarks(self):
-        BookmarkDialog(
+        if getattr(self, "_bookmark_dialog", None) is not None:
+            return
+        self._bookmark_dialog = BookmarkDialog(
             parent=self,
             service=self._bookmarks,
             open_url_cb=self._open_url_from_dialog,
             on_change_cb=self._bookmarks_bar.refresh,
         )
+        self._bookmark_dialog.connect("close-request", lambda _: setattr(self, "_bookmark_dialog", None) or False)
 
     def _toggle_bookmarks_bar(self) -> None:
         visible = not self._bookmarks_bar.get_visible()
