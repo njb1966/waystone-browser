@@ -81,12 +81,23 @@ class BrowserWindow(Adw.ApplicationWindow):
         self.btn_back = Gtk.Button(icon_name="go-previous-symbolic")
         self.btn_forward = Gtk.Button(icon_name="go-next-symbolic")
         self.btn_reload = Gtk.Button(icon_name="view-refresh-symbolic")
-        self.btn_back.set_tooltip_text("Back")
-        self.btn_forward.set_tooltip_text("Forward")
+        self.btn_home = Gtk.Button(icon_name="go-home-symbolic")
+        self.btn_back.set_tooltip_text("Back  (long-press for history)")
+        self.btn_forward.set_tooltip_text("Forward  (long-press for history)")
         self.btn_reload.set_tooltip_text("Reload")
+        self.btn_home.set_tooltip_text("Go to root of current site")
         self.btn_back.connect("clicked", lambda _: self._active_tab_action("back"))
         self.btn_forward.connect("clicked", lambda _: self._active_tab_action("forward"))
         self.btn_reload.connect("clicked", lambda _: self._active_tab_action("reload"))
+        self.btn_home.connect("clicked", lambda _: self._go_root())
+
+        # Long-press on Back/Forward shows a navigation history popover.
+        lp_back = Gtk.GestureLongPress()
+        lp_back.connect("pressed", lambda g, x, y: self._show_nav_history_popover(self.btn_back, "back"))
+        self.btn_back.add_controller(lp_back)
+        lp_fwd = Gtk.GestureLongPress()
+        lp_fwd.connect("pressed", lambda g, x, y: self._show_nav_history_popover(self.btn_forward, "forward"))
+        self.btn_forward.add_controller(lp_fwd)
 
         self.address_bar = Gtk.Entry()
         self.address_bar.set_placeholder_text("Enter URL…")
@@ -110,14 +121,15 @@ class BrowserWindow(Adw.ApplicationWindow):
         menu_btn.set_tooltip_text("Menu")
         menu_btn.set_menu_model(self._build_menu())
 
-        header = Adw.HeaderBar()
-        header.pack_start(self.btn_back)
-        header.pack_start(self.btn_forward)
-        header.pack_start(self.btn_reload)
-        header.set_title_widget(self.address_bar)
-        header.pack_end(menu_btn)
-        header.pack_end(btn_new_tab)
-        header.pack_end(self.btn_bookmark)
+        self._header_bar = Adw.HeaderBar()
+        self._header_bar.pack_start(self.btn_back)
+        self._header_bar.pack_start(self.btn_forward)
+        self._header_bar.pack_start(self.btn_reload)
+        self._header_bar.pack_start(self.btn_home)
+        self._header_bar.set_title_widget(self.address_bar)
+        self._header_bar.pack_end(menu_btn)
+        self._header_bar.pack_end(btn_new_tab)
+        self._header_bar.pack_end(self.btn_bookmark)
 
         self._bookmarks_bar = BookmarksBar(
             service=self._bookmarks,
@@ -126,10 +138,11 @@ class BrowserWindow(Adw.ApplicationWindow):
         self._bookmarks_bar.set_visible(self._settings.show_bookmarks_bar)
 
         self._find_bar = self._build_find_bar()
+        self._tab_bar = tab_bar
 
-        root.append(header)
+        root.append(self._header_bar)
         root.append(self._bookmarks_bar)
-        root.append(tab_bar)
+        root.append(self._tab_bar)
         root.append(self._find_bar)
         root.append(self.tab_view)
 
@@ -162,6 +175,7 @@ class BrowserWindow(Adw.ApplicationWindow):
             # Navigation
             ("go-back",              lambda *_: self._active_tab_action("back")),
             ("go-forward",           lambda *_: self._active_tab_action("forward")),
+            ("go-root",              lambda *_: self._go_root()),
             ("reload",               lambda *_: self._active_tab_action("reload")),
             ("reload-hard",          lambda *_: self._active_tab_action("reload-hard")),
             # Zoom
@@ -196,6 +210,7 @@ class BrowserWindow(Adw.ApplicationWindow):
         # Navigation
         app.set_accels_for_action("win.go-back",              ["<Alt>Left"])
         app.set_accels_for_action("win.go-forward",           ["<Alt>Right"])
+        app.set_accels_for_action("win.go-root",              ["<Alt>Home"])
         app.set_accels_for_action("win.reload",               ["F5", "<Control>r"])
         app.set_accels_for_action("win.reload-hard",          ["<Control><Shift>r"])
         # Zoom
@@ -236,6 +251,8 @@ class BrowserWindow(Adw.ApplicationWindow):
             media_action_cb=self._media_action,
             titan_upload_cb=self._prompt_titan_upload,
             open_url_cb=self._open_new_tab,
+            fullscreen_enter_cb=self._on_web_fullscreen_enter,
+            fullscreen_leave_cb=self._on_web_fullscreen_leave,
             on_title_changed=self._on_tab_title_changed,
             on_uri_changed=self._on_tab_uri_changed,
             on_nav_state_changed=self._on_tab_nav_state_changed,
@@ -285,6 +302,87 @@ class BrowserWindow(Adw.ApplicationWindow):
             "zoom-reset":  tab.zoom_reset,
         }[action]()
 
+    def _go_root(self):
+        tab = self._active_tab()
+        if tab:
+            tab.go_root()
+
+    # ------------------------------------------------------------------
+    # Web fullscreen — hide/restore browser chrome on page fullscreen requests
+    # ------------------------------------------------------------------
+
+    def _on_web_fullscreen_enter(self):
+        self._header_bar.set_visible(False)
+        self._tab_bar.set_visible(False)
+        self._bookmarks_bar.set_visible(False)
+        self._find_bar.set_visible(False)
+        self.fullscreen()
+
+    def _on_web_fullscreen_leave(self):
+        self.unfullscreen()
+        self._header_bar.set_visible(True)
+        self._tab_bar.set_visible(True)
+        self._bookmarks_bar.set_visible(self._settings.show_bookmarks_bar)
+        if self._find_bar.get_search_mode():
+            self._find_bar.set_visible(True)
+
+    # ------------------------------------------------------------------
+    # Navigation history popover (long-press on Back / Forward)
+    # ------------------------------------------------------------------
+
+    def _show_nav_history_popover(self, anchor: Gtk.Widget, direction: str):
+        tab = self._active_tab()
+        if tab is None:
+            return
+
+        history = tab.nav_history
+        pos = tab.nav_pos
+        if not history:
+            return
+
+        if direction == "back":
+            entries = [(i, history[i]) for i in range(pos - 1, -1, -1)]
+        else:
+            entries = [(i, history[i]) for i in range(pos + 1, len(history))]
+
+        if not entries:
+            return
+
+        list_box = Gtk.ListBox()
+        list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        list_box.add_css_class("boxed-list")
+
+        for idx, url in entries:
+            row = Gtk.ListBoxRow()
+            lbl = Gtk.Label(label=url, xalign=0)
+            lbl.set_ellipsize(3)  # PANGO_ELLIPSIZE_END
+            lbl.set_max_width_chars(50)
+            lbl.set_margin_top(4)
+            lbl.set_margin_bottom(4)
+            lbl.set_margin_start(8)
+            lbl.set_margin_end(8)
+            row.set_child(lbl)
+            row._nav_idx = idx
+            list_box.append(row)
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_child(list_box)
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.set_max_content_height(300)
+        scroll.set_propagate_natural_height(True)
+
+        popover = Gtk.Popover()
+        popover.set_child(scroll)
+        popover.set_parent(anchor)
+        popover.set_has_arrow(True)
+
+        def on_row_activated(_lb, row):
+            popover.popdown()
+            tab.go_to_nav_index(row._nav_idx)
+
+        list_box.connect("row-activated", on_row_activated)
+        popover.popup()
+
     # ------------------------------------------------------------------
     # Navigation
     # ------------------------------------------------------------------
@@ -297,11 +395,16 @@ class BrowserWindow(Adw.ApplicationWindow):
         tab = self._active_tab()
         if tab is None:
             return
-        if self._kind_for_url(url) != tab.kind:
-            self._open_new_tab(url)
-        else:
+        if self._kind_for_url(url) == tab.kind:
             tab.navigate(url)
             entry.set_text(url)
+        else:
+            # Different protocol or blank tab: open in a new tab and close the
+            # current one so the address bar navigation always stays in-place.
+            old_page = self.tab_view.get_selected_page()
+            self._open_new_tab(url)
+            if old_page:
+                self.tab_view.close_page(old_page)
 
     # ------------------------------------------------------------------
     # Bookmarks
@@ -645,8 +748,9 @@ class BrowserWindow(Adw.ApplicationWindow):
     # Titan upload prompt (called from async thread; dialog shown on GTK thread)
     # ------------------------------------------------------------------
 
-    async def _prompt_titan_upload(self, url: str) -> "Optional[tuple[str, str]]":
-        """Prompt for Titan upload body and optional token. Returns (body_text, token) or None."""
+    async def _prompt_titan_upload(self, url: str) -> "Optional[tuple[str, str, str]]":
+        """Prompt for Titan upload body, token, and MIME type.
+        Returns (body_text, token, mime) or None on cancel."""
         loop = async_utils.get_loop()
         future = loop.create_future()
 
@@ -666,14 +770,20 @@ class BrowserWindow(Adw.ApplicationWindow):
             scroll.set_size_request(-1, 180)
             scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
+            mime_entry = Gtk.Entry()
+            mime_entry.set_placeholder_text("MIME type")
+            mime_entry.set_text("text/gemini")
+            mime_entry.set_margin_top(8)
+
             token_entry = Gtk.Entry()
             token_entry.set_placeholder_text("Token (optional)")
-            token_entry.set_margin_top(8)
+            token_entry.set_margin_top(4)
             token_entry.set_activates_default(True)
 
             outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
             outer.set_margin_top(8)
             outer.append(scroll)
+            outer.append(mime_entry)
             outer.append(token_entry)
 
             dlg = Adw.AlertDialog(
@@ -692,8 +802,9 @@ class BrowserWindow(Adw.ApplicationWindow):
                     buf = text_view.get_buffer()
                     body_text = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
                     token = token_entry.get_text().strip()
+                    mime = mime_entry.get_text().strip() or "text/gemini"
                     if not future.done():
-                        loop.call_soon_threadsafe(future.set_result, (body_text, token))
+                        loop.call_soon_threadsafe(future.set_result, (body_text, token, mime))
                 else:
                     if not future.done():
                         loop.call_soon_threadsafe(future.set_result, None)

@@ -1,5 +1,6 @@
 """TextViewer — GtkTextView-based renderer for Gemini and Gopher content."""
 
+import unicodedata
 from typing import TYPE_CHECKING, Callable, Optional
 import gi
 gi.require_version("Gtk", "4.0")
@@ -32,6 +33,34 @@ _GOPHER_TYPE_HINT: dict[str, str] = {
     "5": "[zip]", "6": "[uue]", "9": "[bin]",
     "g": "[gif]", "I": "[img]", "s": "[snd]",
 }
+
+_SYMBOL_CATS = frozenset({"So", "Sm", "Sk", "Sc", "Po"})
+
+
+def _leading_symbol(text: str) -> tuple[str | None, str]:
+    """If *text* starts with a non-ASCII emoji or symbol, return (icon, remainder).
+
+    The icon is stripped from the label so it replaces the default ⇒/● bullet.
+    ASCII characters are never extracted — only Unicode symbols and emoji.
+    """
+    if not text:
+        return None, text
+    c = text[0]
+    cp = ord(c)
+    if cp < 0x00A0:  # plain ASCII + C1 — never use as icon
+        return None, text
+    cat = unicodedata.category(c)
+    # Accept Unicode symbol categories and anything in the emoji planes (U+1F000+)
+    if cat not in _SYMBOL_CATS and cp < 0x1F000:
+        return None, text
+    # Consume the symbol plus any trailing variation selector (U+FE00–U+FE0F)
+    i = 1
+    while i < len(text) and 0xFE00 <= ord(text[i]) <= 0xFE0F:
+        i += 1
+    icon = text[:i]
+    rest = text[i:].lstrip()
+    return icon, rest
+
 
 # Monotonically increasing counter for unique link tag names
 _link_serial = 0
@@ -353,13 +382,27 @@ class TextViewer(Gtk.ScrolledWindow):
         self._link_tags.clear()
         self._find_matches.clear()
         self._find_current = -1
+        # Reset scroll position so streamed content always starts at the top.
+        self._view.get_vadjustment().set_value(0)
 
     def _insert(self, iter_: Gtk.TextIter, text: str, *tag_names: str):
         self._buf.insert_with_tags_by_name(iter_, text, *tag_names)
 
     def _insert_link(self, iter_: Gtk.TextIter, label: str, url: str,
                      link_type: str = "gemini_local"):
-        icon, icon_tag = _LINK_ICONS.get(link_type, ("⇒", "link_icon_blue"))
+        default_icon, icon_tag = _LINK_ICONS.get(link_type, ("⇒", "link_icon_blue"))
+
+        # If the label starts with a Unicode symbol or emoji, use it as the bullet
+        # instead of the default ⇒/● so that decorative prefixes render naturally.
+        label_body = label.rstrip("\n")
+        trailing = "\n" if label.endswith("\n") else ""
+        custom_icon, remainder = _leading_symbol(label_body)
+        if custom_icon:
+            icon = custom_icon
+            display_label = remainder + trailing
+        else:
+            icon = default_icon
+            display_label = label
 
         # Per-link anonymous tag — carries only the URL for click detection.
         url_tag_name = _next_link_name()
@@ -372,7 +415,7 @@ class TextViewer(Gtk.ScrolledWindow):
         # Coloured protocol icon
         self._buf.insert_with_tags_by_name(iter_, icon + " ", icon_tag)
         # Link label in the standard link colour
-        self._buf.insert_with_tags_by_name(iter_, label, "link_base")
+        self._buf.insert_with_tags_by_name(iter_, display_label, "link_base")
 
         # Stretch the URL tag over the whole span so the icon is also clickable.
         start_iter = self._buf.get_iter_at_mark(start_mark)

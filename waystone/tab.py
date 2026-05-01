@@ -77,6 +77,8 @@ class Tab:
         media_action_cb: Optional[Callable] = None,
         titan_upload_cb: Optional[Callable] = None,
         open_url_cb: Optional[Callable] = None,
+        fullscreen_enter_cb: Optional[Callable] = None,
+        fullscreen_leave_cb: Optional[Callable] = None,
         on_title_changed: Optional[Callable] = None,
         on_uri_changed: Optional[Callable] = None,
         on_nav_state_changed: Optional[Callable] = None,
@@ -100,6 +102,8 @@ class Tab:
         self._media_action_cb = media_action_cb
         self._titan_upload_cb = titan_upload_cb
         self._open_url_cb = open_url_cb
+        self._fullscreen_enter_cb = fullscreen_enter_cb
+        self._fullscreen_leave_cb = fullscreen_leave_cb
         self._on_title_changed = on_title_changed
         self._on_uri_changed = on_uri_changed
         self._on_nav_state_changed = on_nav_state_changed
@@ -224,6 +228,38 @@ class Tab:
             return self._web_view.get_uri() or self.current_url
         return self.current_url
 
+    def go_root(self):
+        """Navigate to the root document of the current site (scheme://host/)."""
+        url = self.get_uri()
+        if not url:
+            return
+        parsed = urlparse(url)
+        if parsed.scheme and parsed.netloc:
+            root = f"{parsed.scheme}://{parsed.netloc}/"
+            if root != url:
+                self.navigate(root)
+
+    def go_to_nav_index(self, idx: int):
+        """Jump to an arbitrary position in the non-web navigation history."""
+        if self.kind not in (TabKind.GEMINI, TabKind.GOPHER, TabKind.SPARTAN):
+            return
+        if not (0 <= idx < len(self._nav_history)):
+            return
+        self._nav_pos = idx
+        url = self._nav_history[idx]
+        fn = (self._gemini_navigate if self.kind == TabKind.GEMINI
+              else self._gopher_navigate if self.kind == TabKind.GOPHER
+              else self._spartan_navigate)
+        async_utils.run(fn(url, push=False))
+
+    @property
+    def nav_history(self) -> list[str]:
+        return list(self._nav_history)
+
+    @property
+    def nav_pos(self) -> int:
+        return self._nav_pos
+
     # ------------------------------------------------------------------
     # Widget builders (called from GTK thread)
     # ------------------------------------------------------------------
@@ -239,6 +275,8 @@ class Tab:
         self._web_view.connect("load-changed",    self._on_wk_load_changed)
         self._web_view.connect("decide-policy",   self._on_wk_decide_policy)
         self._web_view.connect("context-menu",    self._on_wk_context_menu)
+        self._web_view.connect("enter-fullscreen", self._on_wk_enter_fullscreen)
+        self._web_view.connect("leave-fullscreen", self._on_wk_leave_fullscreen)
         if url:
             self._web_view.load_uri(url)
         return self._web_view
@@ -477,8 +515,31 @@ class Tab:
                 text = body.decode(charset, errors="replace")
                 GLib.idle_add(self._viewer.render_plain, text)
 
+            elif self._is_media_mime(mime):
+                # Audio/video: prompt first, then stream to temp file.
+                # Reading the full body with read_all() would hang indefinitely
+                # on a live stream (e.g. a CGI radio proxy), so we prompt before
+                # consuming any body data and stream chunks into a temp file.
+                parsed_path = urlparse(url).path
+                filename = parsed_path.rstrip("/").rsplit("/", 1)[-1] or "download"
+                choice = None
+                if self._media_action_cb:
+                    choice = await self._media_action_cb(filename, mime)
+                if choice == "open":
+                    await self._stream_media_to_temp(stream, filename)
+                elif choice == "save" and self._save_as_cb:
+                    save_path = await self._save_as_cb(filename)
+                    if save_path:
+                        await self._stream_to_file(stream, save_path, url)
+                    else:
+                        await stream.aclose()
+                else:
+                    await stream.aclose()
+                GLib.idle_add(self._gtk_load_done, url)
+                return
+
             else:
-                # Non-text: detect media or fall back to Save As.
+                # Non-text, non-media binary: buffer fully then offer save.
                 body = await stream.read_all()
                 parsed_path = urlparse(url).path
                 filename = parsed_path.rstrip("/").rsplit("/", 1)[-1] or "download"
@@ -685,13 +746,13 @@ class Tab:
         if result is None:
             return
 
-        body_text, token = result
+        body_text, token, mime = result
         body = body_text.encode("utf-8")
 
         GLib.idle_add(self._gtk_load_started)
 
         try:
-            stream = await titan_upload(titan_url, body=body, token=token)
+            stream = await titan_upload(titan_url, body=body, token=token, mime=mime)
         except GeminiError as e:
             GLib.idle_add(self._viewer.render_error, f"Upload failed: {e}")
             GLib.idle_add(self._gtk_load_done, titan_url)
@@ -851,6 +912,50 @@ class Tab:
         except OSError as exc:
             GLib.idle_add(self._viewer.render_error, f"Could not open media: {exc}")
 
+    async def _stream_media_to_temp(self, stream, filename: str) -> None:
+        """Write a Gemini media stream chunk-by-chunk to a temp file, then xdg-open it.
+
+        Unlike _open_with_default_app this never calls read_all(), so it works for
+        live audio/video streams that never send EOF.  The player opens as soon as the
+        file is created and can read ahead while we continue writing.
+        """
+        suffix = _os.path.splitext(filename)[1] or ""
+        loop = async_utils.get_loop()
+        try:
+            fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="waystone_media_")
+            _os.close(fd)
+            launched = False
+            with open(tmp_path, "wb") as fh:
+                async for chunk in stream.chunks():
+                    await loop.run_in_executor(None, fh.write, chunk)
+                    if not launched:
+                        subprocess.Popen(["xdg-open", tmp_path])
+                        launched = True
+            if not launched:
+                subprocess.Popen(["xdg-open", tmp_path])
+            GLib.idle_add(self._viewer.render_info, f"Opening: {filename}")
+        except GeminiError as e:
+            GLib.idle_add(self._viewer.render_error, str(e))
+        except OSError as exc:
+            GLib.idle_add(self._viewer.render_error, f"Could not open media: {exc}")
+        finally:
+            await stream.aclose()
+
+    async def _stream_to_file(self, stream, save_path: str, url: str) -> None:
+        """Write a Gemini stream to a user-specified file path."""
+        loop = async_utils.get_loop()
+        try:
+            with open(save_path, "wb") as fh:
+                async for chunk in stream.chunks():
+                    await loop.run_in_executor(None, fh.write, chunk)
+            GLib.idle_add(self._viewer.render_info, f"Saved to: {save_path}")
+        except GeminiError as e:
+            GLib.idle_add(self._viewer.render_error, str(e))
+        except OSError as exc:
+            GLib.idle_add(self._viewer.render_error, f"Save failed: {exc}")
+        finally:
+            await stream.aclose()
+
     @staticmethod
     def _is_media_mime(mime: str) -> bool:
         return mime.startswith(("audio/", "video/"))
@@ -959,7 +1064,22 @@ class Tab:
                 GLib.idle_add(lambda u=url: self._open_url_cb(u) and False)
                 decision.ignore()
                 return True
+            # Middle-click: open in new tab rather than navigating current frame.
+            if nav_action.get_mouse_button() == 2 and self._open_url_cb and url:
+                GLib.idle_add(lambda u=url: self._open_url_cb(u) and False)
+                decision.ignore()
+                return True
         return False
+
+    def _on_wk_enter_fullscreen(self, _wv):
+        if self._fullscreen_enter_cb:
+            self._fullscreen_enter_cb()
+        return True  # we handle it
+
+    def _on_wk_leave_fullscreen(self, _wv):
+        if self._fullscreen_leave_cb:
+            self._fullscreen_leave_cb()
+        return True  # we handle it
 
     def _on_wk_favicon(self, _wv, _param):
         """Convert the WebKit favicon texture to a Gio.Icon and notify BrowserWindow."""

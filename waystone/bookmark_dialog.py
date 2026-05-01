@@ -746,12 +746,17 @@ class BookmarkDialog(Adw.Window):
         dialog = Gtk.FileDialog()
         dialog.set_title("Import Bookmarks")
         dialog.set_filters(store)
+        dialog.set_initial_folder(Gio.File.new_for_path(GLib.get_home_dir()))
         dialog.open(self, None, self._on_import_chosen)
 
     def _on_import_chosen(self, dialog: Gtk.FileDialog, result) -> None:
         try:
             gfile = dialog.open_finish(result)
-        except GLib.Error:
+        except GLib.Error as e:
+            if "dismissed" not in str(e).lower() and "cancel" not in str(e).lower():
+                err = Adw.AlertDialog(heading="Could Not Open File", body=str(e))
+                err.add_response("ok", "OK")
+                err.present(self)
             return
         if gfile:
             path = gfile.get_path()
@@ -875,12 +880,17 @@ class BookmarkDialog(Adw.Window):
         dialog = Gtk.FileDialog()
         dialog.set_title("Export Bookmarks to HTML")
         dialog.set_initial_name("bookmarks.html")
+        dialog.set_initial_folder(Gio.File.new_for_path(GLib.get_home_dir()))
         dialog.save(self, None, self._on_export_chosen)
 
     def _on_export_chosen(self, dialog: Gtk.FileDialog, result) -> None:
         try:
             gfile = dialog.save_finish(result)
-        except GLib.Error:
+        except GLib.Error as e:
+            if "dismissed" not in str(e).lower() and "cancel" not in str(e).lower():
+                err = Adw.AlertDialog(heading="Could Not Save File", body=str(e))
+                err.add_response("ok", "OK")
+                err.present(self)
             return
         if gfile:
             self._do_export(gfile.get_path())
