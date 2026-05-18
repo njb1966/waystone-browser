@@ -14,9 +14,9 @@ build/
 venv/
 env/
 
-# Flatpak build
+# Build artifacts
+build-dir/
 _build/
-.flatpak-builder/
 
 # Database (user data — not committed)
 *.db

@@ -16,7 +16,7 @@
   - History (basic)
 - Simple, safe handling of Gemini certificates (TOFU-style)
 - Client certificate identity support for authenticated Gemini capsules
-- Linux-first packaging story (dev run first; Flatpak later)
+- Linux-first packaging story (dev run first; GitHub Releases via install.sh)
 
 ### Non-goals (v1)
 - Building a new web engine (use WebKitGTK)
@@ -36,7 +36,7 @@
   - `AdwApplicationWindow`, `AdwTabView`/`AdwTabBar` for tabs
   - `AdwHeaderBar` for window chrome
   - Dark mode + GNOME HIG styling for free
-  - Flatpak-friendly (part of standard GNOME runtime)
+  - Works on all GNOME and GTK desktops
 
 ### Web rendering (HTTP/HTTPS)
 - WebKitGTK (WebKitWebView)
@@ -332,7 +332,7 @@ CREATE TABLE identity_hosts (
 ## 8. Risks & Mitigations
 
 ### Risk: WebKitGTK packaging/version mismatches
-Mitigation: Target Flatpak runtime early; document distro dependencies clearly.
+Mitigation: Document distro dependencies clearly; installer script handles this.
 
 ### Risk: Security edge cases in Gemini TOFU prompts
 Mitigation: Default deny on cert change; show host, port, fingerprint.
@@ -354,7 +354,7 @@ Mitigation: Track enhancements in roadmap below.
 - **Address bar autocomplete** — suggest from history as you type
 - **Status bar** — show link target on hover; network status
 - **Encrypted identity keys** — optional master passphrase for the identity store
-- **Flatpak release** — submitted to Flathub, pending review (PR #8465)
+- **GitHub Releases** — tag releases with changelogs; users install via `install.sh`
 
 ---
 

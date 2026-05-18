@@ -91,7 +91,7 @@ sudo apt-get install \
 ```
 
 > **Note:** System packages are required and cannot be installed via pip alone.
-> The recommended install paths are `./run.sh` for development or Flatpak for end users.
+> Use `install.sh` for a system install or `./run.sh` to run directly from the repo.
 
 ---
 
@@ -107,32 +107,38 @@ cd waystone-browser
 
 ---
 
-## Installing (system-wide)
+## Installing
 
-Because Waystone depends on `python3-gi` (PyGObject), which is a system package and cannot
-be installed via pip, you must give pipx access to system site-packages:
+On Debian, Ubuntu, Mint, or any apt-based distro, run the one-liner installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/njb1966/waystone-browser/main/install.sh | bash
+```
+
+This will:
+1. Install GTK 4, Libadwaita, and WebKitGTK via apt
+2. Install Waystone into an isolated pipx environment
+3. Register the desktop entry and icon so it appears in your app launcher
+
+After install, run `waystone` to start the browser.
+
+> **XFCE users:** the Applications Menu won't pick up the new entry until the panel is restarted.
+> Run `xfce4-panel --restart` after installing, or log out and back in.
+
+### Manual install (alternative)
+
+If you prefer to install step-by-step:
 
 ```bash
 sudo apt-get install \
     python3-gi python3-gi-cairo \
-    gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-webkit-6.0
+    gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-webkit-6.0 \
+    pipx
 
-pipx install . --system-site-packages
+pipx install git+https://github.com/njb1966/waystone-browser --system-site-packages
 ```
 
-If pipx says the package is already installed, add `--force` to recreate the venv:
-
-```bash
-pipx install . --system-site-packages --force
-```
-
-Then run:
-
-```bash
-waystone
-```
-
-To register the desktop entry and icon:
+Then register the desktop entry:
 
 ```bash
 install -Dm644 data/com.waystone.browser.desktop \
@@ -142,28 +148,6 @@ install -Dm644 data/com.waystone.browser.svg \
     ~/.local/share/icons/hicolor/scalable/apps/com.waystone.browser.svg
 
 update-desktop-database ~/.local/share/applications/
-```
-
-> **XFCE users:** the Applications Menu won't pick up new entries until the panel is restarted.
-> Run `xfce4-panel --restart` after the above commands, or log out and back in.
-
----
-
-## Flatpak
-
-Waystone has been submitted to Flathub (PR [#8465](https://github.com/flathub/flathub/pull/8465)).
-Once approved it will be installable with:
-
-```bash
-flatpak install flathub com.waystone.browser
-```
-
-To build locally from the manifest (`com.waystone.browser.yml`), requires `flatpak-builder`
-and the GNOME Platform 48 runtime:
-
-```bash
-flatpak install flathub org.gnome.Platform//48 org.gnome.Sdk//48
-flatpak-builder --user --install --force-clean build-dir com.waystone.browser.yml
 ```
 
 ---
@@ -346,7 +330,7 @@ waystone/
 data/
   com.waystone.browser.desktop  — Desktop entry
   com.waystone.browser.svg      — Application icon
-com.waystone.browser.yml        — Flatpak manifest
+install.sh                      — One-step installer (apt + pipx)
 ```
 
 ---

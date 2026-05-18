@@ -427,7 +427,7 @@
           Waystone is a multi-protocol graphical browser for Linux that lets you navigate
           the modern web, Geminispace, Gopherspace, and Spartanspace from a single application.
           Built with Python, GTK&nbsp;4, Libadwaita, and WebKitGTK — it feels at home
-          on any GNOME or GTK desktop. Available on Flathub (pending review) and from source.
+          on any GNOME or GTK desktop. Install with a single command or run directly from source.
         </p>
 
         <div class="info-grid">
@@ -508,15 +508,14 @@
 
           <div class="info-block">
             <h3>Getting Started</h3>
-            <p>Flatpak (recommended — pending Flathub approval):</p>
-            <p><code>flatpak install flathub com.waystone.browser</code></p>
-            <p>From source on Debian / Ubuntu, install system packages:</p>
+            <p>On Debian / Ubuntu / Mint:</p>
+            <p><code>curl -fsSL https://raw.githubusercontent.com/njb1966/waystone-browser/main/install.sh | bash</code></p>
             <p>
-              <code>python3-gi &nbsp; gir1.2-gtk-4.0 &nbsp; gir1.2-adw-1</code><br>
-              <code>gir1.2-webkit-6.0 &nbsp; python3-cryptography</code>
+              Installs system dependencies, sets up Waystone via pipx, and registers the
+              desktop entry automatically.
             </p>
             <p>
-              Clone the repository and run <code>./run.sh</code>.
+              Or clone the repository and run <code>./run.sh</code> to start without installing.
               Full documentation and source on
               <a href="https://github.com/njb1966/waystone-browser" target="_blank"
                  rel="noopener noreferrer" style="color:var(--accent2)">GitHub</a>.
