@@ -47,10 +47,6 @@ else
 fi
 
 info "Installing desktop entry and icon..."
-mkdir -p \
-    "$HOME/.local/share/applications" \
-    "$HOME/.local/share/icons/hicolor/scalable/apps" \
-    "$HOME/.local/share/icons/hicolor/48x48/apps"
 
 fetch() {
     if command -v curl &>/dev/null; then
@@ -72,21 +68,56 @@ copy_or_fetch() {
     fi
 }
 
+# Prefer /usr/local/share (always in XDG_DATA_DIRS) so XFCE/garcon picks it up
+# reliably without needing XDG_DATA_HOME to be set. Fall back to ~/.local/share.
+if sudo mkdir -p \
+        /usr/local/share/applications \
+        /usr/local/share/icons/hicolor/scalable/apps \
+        /usr/local/share/icons/hicolor/48x48/apps 2>/dev/null; then
+    DATA_SHARE=/usr/local/share
+    INSTALL_CMD="sudo cp"
+else
+    warn "Cannot write to /usr/local/share — installing to ~/.local/share instead."
+    warn "If the app menu entry does not appear, ensure XDG_DATA_HOME or ~/.local/share is in XDG_DATA_DIRS."
+    DATA_SHARE="$HOME/.local/share"
+    INSTALL_CMD="cp"
+    mkdir -p \
+        "$DATA_SHARE/applications" \
+        "$DATA_SHARE/icons/hicolor/scalable/apps" \
+        "$DATA_SHARE/icons/hicolor/48x48/apps"
+fi
+
 copy_or_fetch \
     "$SCRIPT_DIR/data/com.waystone.browser.desktop" \
     "${RAW_URL}/data/com.waystone.browser.desktop" \
-    "$HOME/.local/share/applications/com.waystone.browser.desktop"
+    /tmp/com.waystone.browser.desktop
+
+# Rewrite Exec with the full absolute path so XFCE/garcon finds the binary
+# even when ~/.local/bin is not in the session's PATH.
+WAYSTONE_BIN="$(command -v waystone 2>/dev/null || echo "$HOME/.local/bin/waystone")"
+sed -i "s|^Exec=waystone|Exec=$WAYSTONE_BIN|" /tmp/com.waystone.browser.desktop
+
+$INSTALL_CMD /tmp/com.waystone.browser.desktop "$DATA_SHARE/applications/com.waystone.browser.desktop"
+
 copy_or_fetch \
     "$SCRIPT_DIR/data/icons/hicolor/scalable/apps/com.waystone.browser.svg" \
     "${RAW_URL}/data/icons/hicolor/scalable/apps/com.waystone.browser.svg" \
-    "$HOME/.local/share/icons/hicolor/scalable/apps/com.waystone.browser.svg"
+    /tmp/com.waystone.browser.svg
+$INSTALL_CMD /tmp/com.waystone.browser.svg "$DATA_SHARE/icons/hicolor/scalable/apps/com.waystone.browser.svg"
+
 copy_or_fetch \
     "$SCRIPT_DIR/data/icons/hicolor/48x48/apps/com.waystone.browser.png" \
     "${RAW_URL}/data/icons/hicolor/48x48/apps/com.waystone.browser.png" \
-    "$HOME/.local/share/icons/hicolor/48x48/apps/com.waystone.browser.png"
+    /tmp/com.waystone.browser.png
+$INSTALL_CMD /tmp/com.waystone.browser.png "$DATA_SHARE/icons/hicolor/48x48/apps/com.waystone.browser.png"
 
-update-desktop-database "$HOME/.local/share/applications/" 2>/dev/null || true
-gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+if [[ "$DATA_SHARE" == /usr/local/share ]]; then
+    sudo update-desktop-database "$DATA_SHARE/applications/" 2>/dev/null || true
+    sudo gtk-update-icon-cache -f -t "$DATA_SHARE/icons/hicolor" 2>/dev/null || true
+else
+    update-desktop-database "$DATA_SHARE/applications/" 2>/dev/null || true
+    gtk-update-icon-cache -f -t "$DATA_SHARE/icons/hicolor" 2>/dev/null || true
+fi
 
 # Remind user if ~/.local/bin is not in PATH permanently
 if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
