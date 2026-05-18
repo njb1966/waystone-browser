@@ -86,6 +86,7 @@ copy_or_fetch \
     "$HOME/.local/share/icons/hicolor/48x48/apps/com.waystone.browser.png"
 
 update-desktop-database "$HOME/.local/share/applications/" 2>/dev/null || true
+gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 
 # Remind user if ~/.local/bin is not in PATH permanently
 if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
