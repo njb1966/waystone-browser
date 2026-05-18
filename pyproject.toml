@@ -21,3 +21,10 @@ include = ["waystone*"]
 
 [tool.setuptools.package-data]
 waystone = ["newtab.html"]
+
+[tool.setuptools]
+data-files = [
+    ["share/applications", ["data/com.waystone.browser.desktop"]],
+    ["share/icons/hicolor/scalable/apps", ["data/icons/hicolor/scalable/apps/com.waystone.browser.svg"]],
+    ["share/icons/hicolor/48x48/apps", ["data/icons/hicolor/48x48/apps/com.waystone.browser.png"]],
+]
